@@ -15,6 +15,14 @@ spring:
   flyway:
     enabled: true
 
+springdoc:
+  api-docs:
+    enabled: false # tắt spec tự sinh từ code; nguồn duy nhất là file YAML tĩnh
+  swagger-ui:
+    path: /swagger-ui.html
+    url: /openapi/GiftMate_API_Contract_v1.yaml # file contract, phục vụ bởi OpenApiConfig
+    disable-swagger-default-url: true # ẩn URL demo Petstore
+
 server:
   port: ${SERVER_PORT:8080}
 

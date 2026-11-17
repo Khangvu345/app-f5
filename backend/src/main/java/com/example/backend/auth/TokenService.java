@@ -1,7 +1,6 @@
 package com.example.backend.auth;
 
 import java.time.Instant;
-import java.util.UUID;
 
 import com.example.backend.config.JwtProperties;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
@@ -22,7 +21,7 @@ public class TokenService {
         this.properties = properties;
     }
 
-    public String generateAccessToken(UUID userId, String email) {
+    public String generateAccessToken(Long userId, String email) {
         Instant now = Instant.now();
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .issuer(properties.issuer())

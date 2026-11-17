@@ -1,0 +1,4007 @@
+openapi: 3.1.0
+info:
+  title: GiftMate API
+  version: 1.0.0
+  description: >
+    API contract v1 của GiftMate — nguồn duy nhất (contract-first, hướng A).
+    Base path /api/v1. Auth: Bearer JWT, mọi dữ liệu scoping theo user_id.
+    ID là BIGINT, trả dạng số JSON (không dạng chuỗi). Tiền VND NUMERIC(18,2).
+    Ngày giờ ISO 8601 theo Asia/Ho_Chi_Minh. Xóa mềm (deleted_at), DELETE trả 204.
+    Nhóm AI (UC-14/UC-15) có trong contract để đủ map 16 UC nhưng CHƯA TRIỂN KHAI
+    ở đợt này (phát triển sau, Q3) — gọi endpoint AI trước khi triển khai sẽ trả 501.
+    Trial Premium (Q5) chờ quyết định nhóm — v1 chưa có premium_until.
+    OAuth chỉ Google + Apple (Q2: bỏ Facebook khỏi UC-01, enum auth_provider giữ EMAIL/GOOGLE/APPLE, không sửa DB).
+  license:
+    name: Chưa công bố — nội bộ dự án GiftMate
+    identifier: LicenseRef-Proprietary
+  contact:
+    name: GiftMate
+servers:
+  - url: http://localhost:8080
+    description: Backend local theo application.yaml (port 8080)
+tags:
+  - name: Auth
+    description: Đăng ký, đăng nhập, OAuth, refresh token, đồng bộ Guest (UC-01, UC-02)
+  - name: Tài khoản
+    description: Hồ sơ cá nhân, đổi mật khẩu, xuất/xóa dữ liệu (UC-02, UC-03)
+  - name: Cài đặt
+    description: Cài đặt người dùng (UC-02)
+  - name: Người nhận
+    description: Hồ sơ người nhận và sở thích (UC-04, UC-05)
+  - name: Sự kiện
+    description: Sự kiện lặp, lịch, lần diễn ra (UC-06, UC-07)
+  - name: Nhắc nhở
+    description: Quy tắc nhắc, thông báo, thiết bị push (UC-08)
+  - name: Ngân sách
+    description: Ngân sách năm/sự kiện và tổng hợp chi tiêu (UC-09, UC-10)
+  - name: Quà và chi
+    description: Ý tưởng quà, vòng đời quà, chi phí, kiểm tra trùng (UC-11, UC-12, UC-13)
+  - name: AI
+    description: Gợi ý quà AI, quota, phản hồi (UC-14, UC-15) — CHƯA TRIỂN KHAI ở v1
+  - name: Admin
+    description: Thống kê AI, hạn mức, cấp Premium (UC-16)
+security:
+  - BearerAuth: []
+paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      operationId: registerUser
+      summary: Đăng ký tài khoản mới bằng email
+      description: >
+        UC-01. Tạo tài khoản EMAIL (auth_provider=EMAIL). Email phải duy nhất;
+        trùng email trả 409. Tạo kèm user_settings mặc định (timezone
+        Asia/Ho_Chi_Minh, locale vi, currency VND, plan FREE).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Đăng ký thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: loginUser
+      summary: Đăng nhập bằng email/mật khẩu
+      description: >
+        UC-01. Sai email hoặc sai mật khẩu trả 401 (không phân biệt lý do).
+        Trả access token (TTL 1h theo application.yaml) + refresh token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Đăng nhập thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auth/oauth/{provider}:
+    post:
+      tags: [Auth]
+      operationId: oauthLogin
+      summary: Đăng nhập bằng tài khoản Google hoặc Apple
+      description: >
+        UC-01. Chỉ hỗ trợ GOOGLE và APPLE (Q2: bỏ Facebook). Provider khác trả 400.
+        Body chứa id_token do nhà cung cấp cấp. Lần đầu đăng nhập: tạo user mới
+        (auth_provider=GOOGLE/APPLE, provider_subject lấy từ id_token) + user_settings
+        mặc định. Đã có tài khoản cùng provider_subject thì đăng nhập thẳng.
+      security: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [GOOGLE, APPLE]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthRequest'
+      responses:
+        '200':
+          description: Đăng nhập thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshToken
+      summary: Đổi refresh token lấy access token mới
+      description: >
+        UC-01, Q6. Server chỉ lưu hash SHA-256 của refresh token (bảng refresh_tokens),
+        không lưu token gốc. Refresh thành công: thu hồi token cũ (revoked_at) và
+        cấp refresh token mới (xoay vòng). Token hết hạn hoặc đã thu hồi trả 401.
+        Refresh token hết hạn sau 30 ngày.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Cấp token mới thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logoutUser
+      summary: Đăng xuất, thu hồi refresh token
+      description: >
+        UC-02. Thu hồi refresh token gửi kèm (nếu có) và kết thúc phiên. Access token
+        còn hạn vẫn dùng được tới khi hết TTL 1h (không có blacklist ở v1).
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '204':
+          description: Đăng xuất thành công
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auth/sync:
+    post:
+      tags: [Auth]
+      operationId: syncGuestData
+      summary: Đồng bộ dữ liệu Guest (cục bộ) vào tài khoản
+      description: >
+        UC-01 (D6). Sau khi Guest đăng ký/đăng nhập, gom dữ liệu cục bộ (người nhận,
+        sự kiện, quà) gộp vào tài khoản. Server tạo mới các bản ghi, bỏ qua bản ghi
+        đã tồn tại (trùng tên người nhận / trùng sự kiện). Chỉ nhận dữ liệu của chính
+        user đang đăng nhập.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncRequest'
+      responses:
+        '200':
+          description: Đồng bộ xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /users/me:
+    get:
+      tags: [Tài khoản]
+      operationId: getMe
+      summary: Lấy hồ sơ của mình
+      description: >
+        UC-02. Trả thông tin users + user_settings gộp (display_name, plan_type,
+        timezone, locale, currency). Không có trường avatar (D11: v2.2 không có
+        cột avatar).
+      responses:
+        '200':
+          description: Hồ sơ hiện tại
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    patch:
+      tags: [Tài khoản]
+      operationId: updateMe
+      summary: Cập nhật tên hiển thị
+      description: >
+        UC-02. Chỉ đổi được display_name (cột user_settings.display_name).
+        Các cài đặt khác đổi qua PATCH /users/me/settings.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdate'
+      responses:
+        '200':
+          description: Cập nhật xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    delete:
+      tags: [Tài khoản]
+      operationId: deleteMe
+      summary: Xóa tài khoản vĩnh viễn
+      description: >
+        UC-03, D14. Bắt buộc gửi mật khẩu hiện tại trong body để xác nhận
+        (v1 chưa có hạ tầng OTP nên chỉ dùng mật khẩu). Sai mật khẩu trả 401
+        và hủy tiến trình. Xóa mềm trước (deleted_at), dữ liệu liên quan
+        cascade theo FK; tài khoản chuyển status DELETED.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteAccountRequest'
+      responses:
+        '204':
+          description: Tài khoản đã xóa
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /users/me/password:
+    patch:
+      tags: [Tài khoản]
+      operationId: changePassword
+      summary: Đổi mật khẩu
+      description: >
+        UC-02. Mật khẩu cũ không đúng trả 400. Tài khoản đăng nhập bằng OAuth
+        (không có password_hash) đổi mật khẩu trả 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '204':
+          description: Đổi mật khẩu xong
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /users/me/export:
+    get:
+      tags: [Tài khoản]
+      operationId: exportMe
+      summary: Xuất dữ liệu cá nhân (JSON)
+      description: >
+        UC-03. Xuất toàn bộ dữ liệu của user (hồ sơ, người nhận, sự kiện, quà,
+        chi phí, ngân sách) dạng JSON. Q8: v1 chỉ JSON, format=pdf trả 400
+        (mã EXPORT_FORMAT_NOT_SUPPORTED). UC-03 nhắc xác nhận bằng mật khẩu/OTP:
+        v1 chưa có hạ tầng OTP nên dùng xác nhận mật khẩu qua header
+        X-Confirm-Password (không bắt buộc ở v1, ghi nhận để làm sau).
+      parameters:
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [json]
+            default: json
+      responses:
+        '200':
+          description: File dữ liệu JSON
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportData'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /users/me/settings:
+    get:
+      tags: [Cài đặt]
+      operationId: getMySettings
+      summary: Lấy cài đặt của mình
+      description: >
+        UC-02. Trả toàn bộ hàng user_settings (múi giờ, ngôn ngữ, tiền tệ,
+        giờ nhắc mặc định, các mốc nhắc, bật/tắt thông báo, ẩn quà ở màn hình
+        khóa, bật AI, gói hiện tại).
+      responses:
+        '200':
+          description: Cài đặt hiện tại
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSettings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    patch:
+      tags: [Cài đặt]
+      operationId: updateMySettings
+      summary: Cập nhật cài đặt
+      description: >
+        UC-02. Chỉ cập nhật các trường gửi kèm. default_reminder_offsets chỉ
+        nhận các mốc 14, 7, 3, 1, 0. plan_type không đổi qua endpoint này
+        (đổi gói do Admin cấp qua UC-16).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserSettingsUpdate'
+      responses:
+        '200':
+          description: Cập nhật xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSettings'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /recipients:
+    get:
+      tags: [Người nhận]
+      operationId: listRecipients
+      summary: Liệt kê người nhận của mình
+      description: >
+        UC-05. Tìm theo tên (search, không phân biệt hoa thường) và lọc theo
+        mối quan hệ (relationship). Sắp xếp theo tên. Không trả bản ghi đã
+        xóa mềm.
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+            description: Từ khóa tìm theo tên người nhận
+        - name: relationship
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [FAMILY, FRIEND, PARTNER, COLLEAGUE, TEACHER, OTHER]
+      responses:
+        '200':
+          description: Danh sách người nhận
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecipientPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Người nhận]
+      operationId: createRecipient
+      summary: Tạo người nhận mới
+      description: >
+        UC-04. Tên bắt buộc (bỏ trống trả 400). Gói Free giới hạn 20 người nhận
+        (plan_limits FREE.recipient_limit); vượt giới hạn trả 403 mã
+        RECIPIENT_LIMIT_REACHED. birth_day và birth_month phải đi cùng nhau
+        (cả hai có hoặc cả hai không) theo CHECK của DB.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecipientCreate'
+      responses:
+        '201':
+          description: Tạo xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recipient'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /recipients/{id}:
+    get:
+      tags: [Người nhận]
+      operationId: getRecipient
+      summary: Lấy 1 người nhận
+      description: >
+        UC-04. Chỉ thấy người nhận của chính mình; của người khác trả 404
+        (không lộ sự tồn tại).
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Người nhận
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recipient'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Người nhận]
+      operationId: updateRecipient
+      summary: Sửa người nhận
+      description: UC-04. Chỉ cập nhật các trường gửi kèm. Không phải chủ sở hữu trả 404.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecipientUpdate'
+      responses:
+        '200':
+          description: Cập nhật xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recipient'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Người nhận]
+      operationId: deleteRecipient
+      summary: Xóa người nhận
+      description: >
+        UC-04. Xóa mềm (deleted_at). Dữ liệu liên quan (sở thích, quà, event_recipients)
+        cascade theo FK. Không phải chủ sở hữu trả 404.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '204':
+          description: Đã xóa
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /recipients/{id}/preferences:
+    get:
+      tags: [Người nhận]
+      operationId: listPreferences
+      summary: Liệt kê sở thích của 1 người nhận
+      description: >
+        UC-04. Lọc theo polarity (LIKE/DISLIKE/AVOID). Mặc định chỉ trả
+        sở thích đang hoạt động (is_active=true); truyền include_inactive=true
+        để lấy cả sở thích đã tắt.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: polarity
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [LIKE, DISLIKE, AVOID]
+        - name: include_inactive
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Danh sách sở thích
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecipientPreferencePage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Người nhận]
+      operationId: createPreference
+      summary: Thêm sở thích cho người nhận
+      description: >
+        UC-04. Trùng sở thích (cùng recipient, polarity, category, value
+        không phân biệt hoa thường) trả 409 theo unique index của DB.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecipientPreferenceCreate'
+      responses:
+        '201':
+          description: Thêm xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecipientPreference'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /recipients/{id}/preferences/{preferenceId}:
+    get:
+      tags: [Người nhận]
+      operationId: getPreference
+      summary: Lấy 1 sở thích
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - name: preferenceId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Sở thích
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecipientPreference'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Người nhận]
+      operationId: updatePreference
+      summary: Sửa sở thích
+      description: >
+        UC-04. Sửa được value, polarity, is_active và confirmed_at
+        (đánh dấu đã xác nhận sở thích do AI suy ra).
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - name: preferenceId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecipientPreferenceUpdate'
+      responses:
+        '200':
+          description: Cập nhật xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecipientPreference'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      tags: [Người nhận]
+      operationId: deletePreference
+      summary: Xóa sở thích
+      description: UC-04. Xóa mềm (deleted_at).
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - name: preferenceId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: Đã xóa
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /events:
+    get:
+      tags: [Sự kiện]
+      operationId: listEvents
+      summary: Liệt kê sự kiện của mình
+      description: >
+        UC-06, UC-07. Lọc theo loại dịp (event_type) và khoảng ngày
+        (start_date, end_date lọc theo local_date của lần diễn ra).
+        Sắp xếp theo ngày diễn ra gần nhất.
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: event_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [BIRTHDAY, ANNIVERSARY, WEDDING, GRADUATION, HOLIDAY, CUSTOM]
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Danh sách sự kiện
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Sự kiện]
+      operationId: createEvent
+      summary: Tạo sự kiện mới
+      description: >
+        UC-06. Bắt buộc có ít nhất 1 người nhận (recipient_ids, tối thiểu 1 phần tử)
+        — DB có trigger deferred chặn lưu sự kiện không có người nhận. Tạo event
+        và event_recipients trong cùng 1 transaction. Ngày không hợp lệ
+        (vd. ngày 31 tháng 2, end_date trước start_date) trả 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventCreate'
+      responses:
+        '201':
+          description: Tạo xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /events/{id}:
+    get:
+      tags: [Sự kiện]
+      operationId: getEvent
+      summary: Lấy 1 sự kiện
+      description: UC-06. Chỉ thấy sự kiện của chính mình; của người khác trả 404.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Sự kiện
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Sự kiện]
+      operationId: updateEvent
+      summary: Sửa sự kiện
+      description: >
+        UC-06. Chỉ cập nhật các trường gửi kèm. Đổi người nhận của sự kiện
+        dùng POST/DELETE /events/{id}/recipients, không dùng endpoint này.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventUpdate'
+      responses:
+        '200':
+          description: Cập nhật xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Sự kiện]
+      operationId: deleteEvent
+      summary: Xóa sự kiện
+      description: >
+        UC-06. Xóa mềm (deleted_at). Các lần diễn ra và nhắc nhở liên quan
+        cascade theo FK.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '204':
+          description: Đã xóa
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /events/calendar:
+    get:
+      tags: [Sự kiện]
+      operationId: getCalendar
+      summary: Xem lịch theo tháng
+      description: >
+        UC-07. Trả các lần diễn ra (occurrence) trong khoảng from–to
+        (mặc định tháng hiện tại theo Asia/Ho_Chi_Minh). Mỗi item gồm
+        occurrence_id, event_id, event_title (lấy từ events.title qua join),
+        local_date và status.
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+            description: Ngày bắt đầu khoảng xem (mặc định ngày 1 tháng hiện tại)
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+            description: Ngày kết thúc khoảng xem (mặc định cuối tháng hiện tại)
+      responses:
+        '200':
+          description: Các lần diễn ra trong khoảng
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /events/upcoming:
+    get:
+      tags: [Sự kiện]
+      operationId: getUpcoming
+      summary: Sự kiện sắp tới
+      description: >
+        UC-07. Danh sách các lần diễn ra sắp tới theo thứ tự thời gian
+        (local_date tăng dần). Mặc định 30 ngày tới; truyền days để đổi
+        (tối đa 365). Không có sự kiện nào trả danh sách rỗng.
+      parameters:
+        - name: days
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+      responses:
+        '200':
+          description: Sự kiện sắp tới
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /events/{id}/recipients:
+    get:
+      tags: [Sự kiện]
+      operationId: listEventRecipients
+      summary: Liệt kê người nhận của sự kiện
+      description: UC-06. Trả danh sách người nhận kèm cờ is_primary.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Người nhận của sự kiện
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EventRecipient'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Sự kiện]
+      operationId: addEventRecipient
+      summary: Thêm người nhận vào sự kiện
+      description: >
+        UC-06. Người nhận phải thuộc về user. Thêm trùng trả 409
+        (khóa chính event_recipients là cặp event_id + recipient_id).
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventRecipientCreate'
+      responses:
+        '201':
+          description: Thêm xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventRecipient'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      tags: [Sự kiện]
+      operationId: removeEventRecipient
+      summary: Gỡ người nhận khỏi sự kiện
+      description: >
+        UC-06. Gỡ người nhận cuối cùng bị chặn 409 (trigger DB:
+        sự kiện phải còn ít nhất 1 người nhận).
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - name: recipientId
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: Đã gỡ
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /events/{id}/occurrences:
+    get:
+      tags: [Sự kiện]
+      operationId: listOccurrences
+      summary: Liệt kê các lần diễn ra của sự kiện
+      description: >
+        UC-07. Các lần diễn ra (hằng năm theo recurrence_frequency) của 1 sự kiện,
+        sắp xếp theo local_date. Lọc theo status nếu cần.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [PLANNED, PREPARING, COMPLETED, SKIPPED, ACTIVE, CANCELLED]
+      responses:
+        '200':
+          description: Các lần diễn ra
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventOccurrencePage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /occurrences/{id}:
+    get:
+      tags: [Sự kiện]
+      operationId: getOccurrence
+      summary: Lấy 1 lần diễn ra
+      description: UC-07. Chỉ thấy lần diễn ra thuộc sự kiện của chính mình.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Lần diễn ra
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventOccurrence'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Sự kiện]
+      operationId: updateOccurrence
+      summary: Sửa 1 lần diễn ra
+      description: >
+        UC-07. Sửa được title, status (vd. đánh dấu COMPLETED/SKIPPED)
+        và note của lần diễn ra cụ thể, không ảnh hưởng các lần khác.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventOccurrenceUpdate'
+      responses:
+        '200':
+          description: Cập nhật xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventOccurrence'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Sự kiện]
+      operationId: deleteOccurrence
+      summary: Xóa 1 lần diễn ra
+      description: UC-07. Xóa mềm (deleted_at). Chỉ xóa lần này, không xóa sự kiện gốc.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '204':
+          description: Đã xóa
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /occurrences/{id}/recipients:
+    get:
+      tags: [Sự kiện]
+      operationId: listOccurrenceRecipients
+      summary: Liệt kê người nhận của 1 lần diễn ra
+      description: >
+        UC-07. Người nhận của lần diễn ra cụ thể (bảng occurrence_recipients,
+        được copy từ event_recipients khi sinh occurrence). Dùng để hiển thị
+        "dịp này là của ai" trên màn hình chi tiết lần diễn ra.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Người nhận của lần diễn ra
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OccurrenceRecipient'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /events/{id}/reminder-rules:
+    get:
+      tags: [Nhắc nhở]
+      operationId: listReminderRules
+      summary: Liệt kê quy tắc nhắc của sự kiện
+      description: UC-08. Các mốc báo trước (days_before) đã cấu hình cho sự kiện này.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Danh sách quy tắc nhắc
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReminderRule'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Nhắc nhở]
+      operationId: createReminderRule
+      summary: Thêm quy tắc nhắc cho sự kiện
+      description: >
+        UC-08. days_before chỉ nhận 14, 7, 3, 1, 0 (theo CHECK của DB).
+        Trùng mốc của cùng sự kiện trả 409 (UNIQUE event_id + days_before).
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReminderRuleCreate'
+      responses:
+        '201':
+          description: Thêm xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReminderRule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /events/{id}/reminder-rules/{ruleId}:
+    get:
+      tags: [Nhắc nhở]
+      operationId: getReminderRule
+      summary: Lấy 1 quy tắc nhắc
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Quy tắc nhắc
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReminderRule'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Nhắc nhở]
+      operationId: updateReminderRule
+      summary: Sửa quy tắc nhắc
+      description: >
+        UC-08. Sửa được days_before, reminder_time và enabled. Đổi sang mốc
+        đã tồn tại của cùng sự kiện trả 409.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReminderRuleUpdate'
+      responses:
+        '200':
+          description: Cập nhật xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReminderRule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      tags: [Nhắc nhở]
+      operationId: deleteReminderRule
+      summary: Xóa quy tắc nhắc
+      description: UC-08. Xóa hẳn quy tắc (bảng reminder_rules không có deleted_at).
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: Đã xóa
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /notifications:
+    get:
+      tags: [Nhắc nhở]
+      operationId: listNotifications
+      summary: Liệt kê thông báo nhắc của mình
+      description: >
+        UC-08. Lọc theo status và type. Sắp xếp theo scheduled_at.
+        Guest chỉ nhận nhắc cục bộ trên máy nên không dùng endpoint này.
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [PENDING, SENT, FAILED, CANCELLED, SNOOZED]
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [PREPARE_GIFT, EVENT_TODAY, FOLLOW_UP]
+      responses:
+        '200':
+          description: Danh sách thông báo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /notifications/{id}:
+    patch:
+      tags: [Nhắc nhở]
+      operationId: updateNotification
+      summary: Đánh dấu đã đọc / hoãn nhắc
+      description: >
+        UC-08. read=true đặt read_at; snooze=true chuyển status sang SNOOZED
+        và tăng snooze_count. Chỉ sửa được thông báo của chính mình.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationUpdate'
+      responses:
+        '200':
+          description: Cập nhật xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /devices:
+    get:
+      tags: [Nhắc nhở]
+      operationId: listDevices
+      summary: Liệt kê thiết bị nhận push của mình
+      description: UC-08. Các thiết bị đã đăng ký nhận thông báo đẩy.
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          description: Danh sách thiết bị
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDevicePage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Nhắc nhở]
+      operationId: createDevice
+      summary: Đăng ký thiết bị nhận push
+      description: >
+        UC-08. Đăng ký installation_id + push_token để nhận thông báo đẩy.
+        Trùng (user_id, installation_id) trả 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserDeviceCreate'
+      responses:
+        '201':
+          description: Đăng ký xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDevice'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /devices/{id}:
+    get:
+      tags: [Nhắc nhở]
+      operationId: getDevice
+      summary: Lấy 1 thiết bị
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Thiết bị
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDevice'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Nhắc nhở]
+      operationId: updateDevice
+      summary: Cập nhật thiết bị
+      description: >
+        UC-08. Cập nhật push_token (khi token FCM/APNs đổi) hoặc
+        notification_permission (khi user bật/tắt quyền trong cài đặt máy).
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserDeviceUpdate'
+      responses:
+        '200':
+          description: Cập nhật xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDevice'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Nhắc nhở]
+      operationId: deleteDevice
+      summary: Gỡ thiết bị khỏi danh sách nhận push
+      description: UC-08. Xóa hẳn thiết bị (bảng user_devices không có deleted_at).
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '204':
+          description: Đã gỡ
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /budgets:
+    get:
+      tags: [Ngân sách]
+      operationId: listBudgets
+      summary: Liệt kê ngân sách của mình
+      description: >
+        UC-09. Lọc theo scope_type (ANNUAL/EVENT) và scope_year.
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: scope_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [ANNUAL, EVENT]
+        - name: scope_year
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Danh sách ngân sách
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Ngân sách]
+      operationId: createBudget
+      summary: Lập ngân sách mới
+      description: >
+        UC-09. scope ANNUAL cần scope_year (mỗi năm chỉ 1 ngân sách,
+        trùng trả 409); scope EVENT cần occurrence_id (mỗi lần diễn ra chỉ 1
+        ngân sách, trùng trả 409). amount phải > 0, âm hoặc không phải số trả 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetCreate'
+      responses:
+        '201':
+          description: Lập xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Budget'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /budgets/{id}:
+    get:
+      tags: [Ngân sách]
+      operationId: getBudget
+      summary: Lấy 1 ngân sách
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Ngân sách
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Budget'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Ngân sách]
+      operationId: updateBudget
+      summary: Sửa ngân sách
+      description: UC-09. Sửa được amount và alert_threshold_percent (1–100).
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetUpdate'
+      responses:
+        '200':
+          description: Cập nhật xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Budget'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Ngân sách]
+      operationId: deleteBudget
+      summary: Xóa ngân sách
+      description: UC-09. Xóa mềm (deleted_at).
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '204':
+          description: Đã xóa
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /budgets/summary:
+    get:
+      tags: [Ngân sách]
+      operationId: getBudgetSummary
+      summary: Tổng hợp chi tiêu và cảnh báo
+      description: >
+        UC-10. Đối soát tổng chi thực tế (SUM expenses qua view
+        v_actual_spend_by_occurrence) với hạn mức từng ngân sách; trả phần trăm
+        đã dùng và cờ cảnh báo theo alert_threshold_percent của từng budget
+        (mặc định 80; ngưỡng 90%/100% trong UC-10 chỉ là ví dụ — D10).
+        Chưa lập ngân sách thì trả tổng chi chưa kèm phần trăm giới hạn.
+      parameters:
+        - name: scope_year
+          in: query
+          required: false
+          schema:
+            type: integer
+            description: Lọc tổng hợp theo năm (mặc định năm hiện tại VN)
+        - name: occurrence_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            description: Lọc tổng hợp theo 1 lần diễn ra
+      responses:
+        '200':
+          description: Tổng hợp chi tiêu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetSummaryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /gifts:
+    get:
+      tags: [Quà và chi]
+      operationId: listGifts
+      summary: Liệt kê quà của mình
+      description: >
+        UC-11. Lọc theo recipient_id, occurrence_id, status và source
+        (MANUAL/AI). Sắp xếp theo ngày tạo mới nhất.
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: recipient_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+        - name: occurrence_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [IDEA, CONSIDERING, SELECTED, PURCHASED, GIVEN, RETURNED, CANCELLED]
+        - name: source
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [MANUAL, AI]
+      responses:
+        '200':
+          description: Danh sách quà
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GiftPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Quà và chi]
+      operationId: createGift
+      summary: Thêm ý tưởng quà
+      description: >
+        UC-11. Tên và recipient_id bắt buộc. product_url phải đúng định dạng URL
+        (sai trả 400). Trạng thái ban đầu IDEA. Gói Free giới hạn 200 ý tưởng
+        đang hoạt động (plan_limits FREE.active_gift_ideas); vượt giới hạn trả 403.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GiftCreate'
+      responses:
+        '201':
+          description: Thêm xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Gift'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /gifts/{id}:
+    get:
+      tags: [Quà và chi]
+      operationId: getGift
+      summary: Lấy 1 món quà
+      description: >
+        UC-11. Kèm actual_spend (chi thực tế = SUM expenses qua view
+        v_gift_actual_spend; không lưu cột actual_amount ở gifts).
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Món quà
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Gift'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Quà và chi]
+      operationId: updateGift
+      summary: Sửa món quà
+      description: >
+        UC-11. Sửa tên, danh mục, giá dự kiến, link, ảnh, ghi chú, ngày mua/tặng,
+        reaction. Đổi trạng thái dùng PATCH /gifts/{id}/status, không dùng endpoint này.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GiftUpdate'
+      responses:
+        '200':
+          description: Cập nhật xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Gift'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Quà và chi]
+      operationId: deleteGift
+      summary: Xóa món quà
+      description: UC-11. Xóa mềm (deleted_at).
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '204':
+          description: Đã xóa
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /gifts/{id}/status:
+    patch:
+      tags: [Quà và chi]
+      operationId: updateGiftStatus
+      summary: Chuyển trạng thái quà
+      description: >
+        UC-12. Vòng đời duy nhất: IDEA → CONSIDERING → SELECTED → PURCHASED →
+        GIVEN (+ RETURNED/CANCELLED). Chuyển sai bị chặn 409 (trigger DB
+        trg_gift_status_transition là lưới cuối, app cũng phải chặn ở UI).
+        Chuyển sang PURCHASED bắt buộc có purchased_on; chuyển sang GIVEN
+        nên có given_on. Hợp lệ: IDEA→CONSIDERING/SELECTED/CANCELLED,
+        CONSIDERING→IDEA/SELECTED/CANCELLED, SELECTED→CONSIDERING/PURCHASED/CANCELLED,
+        PURCHASED→GIVEN/RETURNED/CANCELLED, GIVEN→RETURNED.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GiftStatusUpdate'
+      responses:
+        '200':
+          description: Chuyển trạng thái xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Gift'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /gifts/duplicate-check:
+    get:
+      tags: [Quà và chi]
+      operationId: checkDuplicateGift
+      summary: Kiểm tra trùng quà đã tặng
+      description: >
+        UC-13. Đối soát tên/danh mục quà mới với lịch sử quà đã tặng của
+        người nhận đó (so khớp name_normalized). Trả danh sách các món đã tặng
+        trước đây kèm ngày tặng để user chọn tiếp tục lưu hay hủy.
+        Không trùng trả matches rỗng.
+      parameters:
+        - name: recipient_id
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Kết quả kiểm tra trùng
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DuplicateCheckResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /gifts/{id}/expenses:
+    get:
+      tags: [Quà và chi]
+      operationId: listExpenses
+      summary: Liệt kê chi phí của 1 món quà
+      description: UC-12. Các khoản chi (quà, ship, gói) gắn với món quà này.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          description: Danh sách chi phí
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExpensePage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Quà và chi]
+      operationId: createExpense
+      summary: Ghi nhận chi phí cho món quà
+      description: >
+        UC-12. Ghi giá thực tế (amount >= 0, occurred_at bắt buộc). Khoản chi
+        được cộng dồn vào tổng chi thực tế của ngân sách (UC-10) qua view,
+        chỉ khi is_counted_in_actual_spend=true.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpenseCreate'
+      responses:
+        '201':
+          description: Ghi xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Expense'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /gifts/{id}/expenses/{expenseId}:
+    get:
+      tags: [Quà và chi]
+      operationId: getExpense
+      summary: Lấy 1 khoản chi
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - name: expenseId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Khoản chi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Expense'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Quà và chi]
+      operationId: updateExpense
+      summary: Sửa khoản chi
+      description: UC-12. Sửa được amount, occurred_at, description và cờ tính vào chi thực tế.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - name: expenseId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpenseUpdate'
+      responses:
+        '200':
+          description: Cập nhật xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Expense'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Quà và chi]
+      operationId: deleteExpense
+      summary: Xóa khoản chi
+      description: UC-12. Xóa mềm (deleted_at); tổng chi thực tế tự cập nhật lại qua view.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - name: expenseId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: Đã xóa
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /ai/suggestions:
+    post:
+      tags: [AI]
+      operationId: requestAiSuggestions
+      summary: Yêu cầu gợi ý quà AI
+      description: >
+        UC-14. CHƯA TRIỂN KHAI ở v1 (Q3: phần AI phát triển sau) — endpoint này
+        luôn trả 501 AI_NOT_IMPLEMENTED cho tới khi backend AI được làm.
+        Khi triển khai: kiểm tra quota ngày (Free 2 lượt/ngày, tối đa 3 sản phẩm/lượt;
+        Premium X lượt/ngày, Y sản phẩm/lượt theo cấu hình Admin — X/Y đang NULL
+        nên fail-closed), loại trừ quà đã mua/tặng, gọi LLM, fallback sang danh sách
+        phổ biến tĩnh + lịch sử khi AI lỗi/timeout (Q4). Hết quota trả 429.
+      x-giftmate-implementation: planned
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiSuggestionRequest'
+      responses:
+        '200':
+          description: Danh sách gợi ý AI (chỉ có sau khi backend AI triển khai)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiRequest'
+        '501':
+          $ref: '#/components/responses/AiNotImplemented'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/QuotaExceeded'
+  /ai/requests:
+    get:
+      tags: [AI]
+      operationId: listAiRequests
+      summary: Liệt kê lịch sử yêu cầu AI của mình
+      description: >
+        UC-14, UC-16. CHƯA TRIỂN KHAI ở v1 (Q3) — luôn trả 501 cho tới khi
+        backend AI được làm. Sau này: lịch sử các lần gọi AI (trạng thái,
+        model, token, chi phí) của chính user.
+      x-giftmate-implementation: planned
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          description: Lịch sử yêu cầu AI (chỉ có sau khi backend AI triển khai)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiRequestPage'
+        '501':
+          $ref: '#/components/responses/AiNotImplemented'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /ai/requests/{id}:
+    get:
+      tags: [AI]
+      operationId: getAiRequest
+      summary: Lấy 1 yêu cầu AI kèm gợi ý
+      description: >
+        UC-14. CHƯA TRIỂN KHAI ở v1 (Q3) — luôn trả 501 cho tới khi backend
+        AI được làm. Sau này: chi tiết 1 lần gọi AI và tối đa 5 gợi ý của nó.
+      x-giftmate-implementation: planned
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Chi tiết yêu cầu AI kèm gợi ý (chỉ có sau khi backend AI triển khai)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiRequest'
+        '501':
+          $ref: '#/components/responses/AiNotImplemented'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /ai/quota:
+    get:
+      tags: [AI]
+      operationId: getAiQuota
+      summary: Xem quota AI còn lại hôm nay
+      description: >
+        UC-14. CHƯA TRIỂN KHAI ở v1 (Q3) — luôn trả 501 cho tới khi backend
+        AI được làm. Sau này: số lượt đã dùng / hạn mức ngày (tính theo ngày
+        Việt Nam, reset 00:00 VN), số sản phẩm tối đa mỗi lượt.
+      x-giftmate-implementation: planned
+      responses:
+        '200':
+          description: Quota AI còn lại (chỉ có sau khi backend AI triển khai)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiQuota'
+        '501':
+          $ref: '#/components/responses/AiNotImplemented'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /ai/suggestions/{id}/save:
+    post:
+      tags: [AI]
+      operationId: saveAiSuggestion
+      summary: Lưu gợi ý AI vào kho ý tưởng
+      description: >
+        UC-15. CHƯA TRIỂN KHAI ở v1 (Q3) — luôn trả 501 cho tới khi backend
+        AI được làm. Sau này: chuyển 1 gợi ý AI thành món quà (source=AI,
+        status=IDEA, suggestion_id trỏ về gợi ý). Gợi ý đã lưu rồi trả 409.
+      x-giftmate-implementation: planned
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiSuggestionSave'
+      responses:
+        '201':
+          description: Lưu thành công (chỉ có sau khi backend AI triển khai)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Gift'
+        '501':
+          $ref: '#/components/responses/AiNotImplemented'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /ai/suggestions/{id}/feedback:
+    post:
+      tags: [AI]
+      operationId: submitAiFeedback
+      summary: Gửi phản hồi cho 1 gợi ý AI
+      description: >
+        UC-15, D12. CHƯA TRIỂN KHAI ở v1 (Q3) — luôn trả 501 cho tới khi
+        backend AI được làm. Sau này: ghi 1 phản hồi cho 1 gợi ý (1 gợi ý
+        chỉ có 1 phản hồi). Lý do chỉ nhận TOO_EXPENSIVE, ALREADY_GIVEN,
+        NOT_MATCHING_INTERESTS, NOT_MATCHING_OCCASION, OTHER — v2.2 không
+        có cột Thích/Không thích nên v1 không nhận cảm xúc.
+      x-giftmate-implementation: planned
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuggestionFeedbackCreate'
+      responses:
+        '201':
+          description: Ghi phản hồi xong (chỉ có sau khi backend AI triển khai)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuggestionFeedback'
+        '501':
+          $ref: '#/components/responses/AiNotImplemented'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /admin/ai/stats:
+    get:
+      tags: [Admin]
+      operationId: getAdminAiStats
+      summary: Thống kê lượt gọi AI theo ngày
+      description: >
+        UC-16. Chỉ role ADMIN. Đọc từ view v_ai_daily_stats: theo ngày Việt Nam
+        + model — số lượt gọi thành công, số lượt lỗi, tổng token vào/ra,
+        tổng chi phí (cents). D13: view không có thời gian phản hồi trung bình
+        và tỉ lệ lỗi/Fallback nên endpoint này không trả 2 số đó.
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: model
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Bảng thống kê AI
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminAiStats'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/plan-limits:
+    get:
+      tags: [Admin]
+      operationId: getAdminPlanLimits
+      summary: Xem toàn bộ hạn mức các gói
+      description: >
+        UC-16. Chỉ role ADMIN. Trả toàn bộ hàng plan_limits (FREE/PREMIUM ×
+        recipient_limit, ai_requests_per_day, active_gift_ideas). Giá trị NULL
+        nghĩa là chưa điền — server chặn fail-closed, không coi là không giới hạn.
+      responses:
+        '200':
+          description: Hạn mức các gói
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlanLimit'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    patch:
+      tags: [Admin]
+      operationId: updateAdminPlanLimits
+      summary: Chỉnh hạn mức 1 gói
+      description: >
+        UC-16. Chỉ role ADMIN. Chỉnh số lượt gợi ý tối đa/ngày và số sản phẩm
+        tối đa/lượt (X/Y của Premium) hoặc giới hạn người nhận. Giá trị âm hoặc
+        thiếu trường bắt buộc trả 400. Thay đổi áp dụng ngay (real-time).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanLimitsUpdate'
+      responses:
+        '200':
+          description: Cập nhật xong
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlanLimit'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/users:
+    get:
+      tags: [Admin]
+      operationId: getAdminUsers
+      summary: Liệt kê tài khoản người dùng
+      description: >
+        UC-16. Chỉ role ADMIN. Danh sách tài khoản để Admin chọn khi cấp
+        trial Premium hoặc đổi gói. Lọc theo plan_type, role, status và
+        tìm theo email.
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+            description: Tìm theo email hoặc tên hiển thị
+        - name: plan_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [FREE, PREMIUM]
+        - name: role
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [USER, ADMIN]
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [ACTIVE, DISABLED, DELETED]
+      responses:
+        '200':
+          description: Danh sách tài khoản
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/users/{id}/trial-premium:
+    post:
+      tags: [Admin]
+      operationId: grantTrialPremium
+      summary: Cấp Premium thử nghiệm cho 1 tài khoản
+      description: >
+        UC-16, Q5 (CHỜ NHÓM). Chỉ role ADMIN. v1 chỉ set plan_type=PREMIUM,
+        chưa có premium_until vì Q5 chưa chốt — endpoint này KHÔNG có body.
+        Khi nhóm chốt ngày hết hạn, v1.1 sẽ thêm trường premium_until
+        (migration riêng) và body nhận expires_at.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Cấp Premium xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /admin/users/{id}/plan:
+    patch:
+      tags: [Admin]
+      operationId: updateUserPlan
+      summary: Đổi gói của 1 tài khoản
+      description: >
+        UC-16. Chỉ role ADMIN. Nâng/hạ gói FREE/PREMIUM của user (không cần
+        ngày hết hạn ở v1 — xem POST /admin/users/{id}/trial-premium).
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanUpdate'
+      responses:
+        '200':
+          description: Đổi gói xong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Access token JWT (TTL 1h). Gửi trong header Authorization.
+        Hết hạn thì dùng POST /auth/refresh để đổi token mới.
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+      description: Số trang, bắt đầu từ 0
+    SizeParam:
+      name: size
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      description: Số bản ghi mỗi trang
+    IdParam:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+      description: ID BIGINT của bản ghi
+  responses:
+    BadRequest:
+      description: Dữ liệu gửi lên không hợp lệ
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Chưa đăng nhập hoặc token hết hạn/sai
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Không có quyền (không phải ADMIN, không phải chủ sở hữu, hoặc vượt hạn mức gói)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Không tìm thấy bản ghi
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: Xung đột dữ liệu (trùng, chuyển trạng thái sai)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    QuotaExceeded:
+      description: Hết quota AI trong ngày
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    AiNotImplemented:
+      description: Nhóm AI chưa triển khai ở v1 (Q3)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Mã lỗi, vd VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT, AI_QUOTA_EXCEEDED, AI_NOT_IMPLEMENTED, EXPORT_FORMAT_NOT_SUPPORTED, RECIPIENT_LIMIT_REACHED
+          example: VALIDATION_ERROR
+        message:
+          type: string
+          description: Thông báo lỗi đọc được (tiếng Việt)
+          example: Tên người nhận không được để trống
+        details:
+          type: array
+          description: Chi tiết từng lỗi field (nếu có)
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+                example: name
+              message:
+                type: string
+                example: Không được để trống
+    RegisterRequest:
+      type: object
+      required: [email, password, display_name]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          example: khanh@example.com
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 255
+          description: Mật khẩu tối thiểu 8 ký tự
+        display_name:
+          type: string
+          maxLength: 100
+          example: Khánh
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: khanh@example.com
+        password:
+          type: string
+          format: password
+    OAuthRequest:
+      type: object
+      required: [id_token]
+      properties:
+        id_token:
+          type: string
+          description: ID token do Google hoặc Apple cấp sau khi user đăng nhập trên app
+    RefreshTokenRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+          description: Refresh token nhận được lúc đăng nhập (server chỉ lưu hash SHA-256)
+    AuthResponse:
+      type: object
+      required: [access_token, refresh_token, token_type, expires_in, user]
+      properties:
+        access_token:
+          type: string
+          description: JWT access token, TTL 1h
+        refresh_token:
+          type: string
+          description: Refresh token, hết hạn sau 30 ngày; xoay vòng mỗi lần refresh
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          description: TTL của access token tính bằng giây
+          example: 3600
+        user:
+          $ref: '#/components/schemas/UserProfile'
+    SyncRequest:
+      type: object
+      description: >
+        Dữ liệu cục bộ của Guest gửi lên để gộp vào tài khoản (UC-01, D6).
+        Mỗi mảng dùng đúng schema Create của tài nguyên tương ứng.
+      properties:
+        recipients:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecipientCreate'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventCreate'
+        gifts:
+          type: array
+          items:
+            $ref: '#/components/schemas/GiftCreate'
+    SyncResponse:
+      type: object
+      required: [recipients_created, events_created, gifts_created, skipped]
+      properties:
+        recipients_created:
+          type: integer
+          example: 3
+        events_created:
+          type: integer
+          example: 2
+        gifts_created:
+          type: integer
+          example: 5
+        skipped:
+          type: integer
+          description: Số bản ghi bỏ qua vì đã tồn tại
+          example: 1
+    UserProfile:
+      type: object
+      description: >
+        Hồ sơ gộp users + user_settings cho GET /users/me. Trường user là
+        object lồng (suy ra, không phải cột DB).
+      required: [id, email, display_name, role, status, plan_type]
+      properties:
+        id:
+          type: integer
+          format: int64
+        email:
+          type: [string, "null"]
+          format: email
+          description: NULL với tài khoản chỉ đăng nhập OAuth chưa nhập email
+        auth_provider:
+          type: [string, "null"]
+          enum: [EMAIL, GOOGLE, APPLE]
+          description: >
+            Cách đăng nhập (bảng users.auth_provider, Q2: không có FACEBOOK)
+        display_name:
+          type: string
+          maxLength: 100
+        role:
+          type: string
+          enum: [USER, ADMIN]
+        status:
+          type: string
+          enum: [ACTIVE, DISABLED, DELETED]
+        plan_type:
+          type: string
+          enum: [FREE, PREMIUM]
+        timezone:
+          type: string
+          example: Asia/Ho_Chi_Minh
+        locale:
+          type: string
+          example: vi
+        currency:
+          type: string
+          example: VND
+        created_at:
+          type: string
+          format: date-time
+    UserUpdate:
+      type: object
+      properties:
+        display_name:
+          type: string
+          maxLength: 100
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+          format: password
+        new_password:
+          type: string
+          format: password
+          minLength: 8
+    DeleteAccountRequest:
+      type: object
+      required: [password]
+      properties:
+        password:
+          type: string
+          format: password
+          description: Mật khẩu hiện tại để xác nhận xóa tài khoản (D14, v1 chưa có OTP)
+    UserSettings:
+      type: object
+      description: Map 1-1 bảng user_settings
+      required: [display_name, timezone, locale, currency, default_reminder_time, default_reminder_offsets, notifications_enabled, hide_gift_on_lockscreen, ai_enabled, plan_type]
+      properties:
+        display_name:
+          type: string
+          maxLength: 100
+        timezone:
+          type: string
+          default: Asia/Ho_Chi_Minh
+          example: Asia/Ho_Chi_Minh
+        locale:
+          type: string
+          default: vi
+          example: vi
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+          default: VND
+          example: VND
+        default_reminder_time:
+          type: string
+          pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+          default: '09:00'
+          description: Giờ nhắc mặc định, định dạng HH:mm
+          example: '09:00'
+        default_reminder_offsets:
+          type: array
+          description: Các mốc nhắc mặc định (số ngày trước sự kiện)
+          default: [14, 7, 3, 1, 0]
+          items:
+            type: integer
+            enum: [14, 7, 3, 1, 0]
+        notifications_enabled:
+          type: boolean
+          default: true
+        hide_gift_on_lockscreen:
+          type: boolean
+          default: true
+        ai_enabled:
+          type: boolean
+          default: true
+        plan_type:
+          type: string
+          enum: [FREE, PREMIUM]
+    UserSettingsUpdate:
+      type: object
+      properties:
+        timezone:
+          type: string
+        locale:
+          type: string
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        default_reminder_time:
+          type: string
+          pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+        default_reminder_offsets:
+          type: array
+          items:
+            type: integer
+            enum: [14, 7, 3, 1, 0]
+        notifications_enabled:
+          type: boolean
+        hide_gift_on_lockscreen:
+          type: boolean
+        ai_enabled:
+          type: boolean
+    ExportData:
+      type: object
+      description: Toàn bộ dữ liệu cá nhân của user, xuất dạng JSON (UC-03)
+      properties:
+        user:
+          $ref: '#/components/schemas/UserProfile'
+        settings:
+          $ref: '#/components/schemas/UserSettings'
+        recipients:
+          type: array
+          items:
+            $ref: '#/components/schemas/Recipient'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/Event'
+        gifts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Gift'
+        budgets:
+          type: array
+          items:
+            $ref: '#/components/schemas/Budget'
+        exported_at:
+          type: string
+          format: date-time
+    PlanLimit:
+      type: object
+      description: Map 1-1 bảng plan_limits
+      required: [plan_type, limit_key, limit_value]
+      properties:
+        plan_type:
+          type: string
+          enum: [FREE, PREMIUM]
+        limit_key:
+          type: string
+          enum: [recipient_limit, ai_requests_per_day, active_gift_ideas]
+        limit_value:
+          type: [integer, "null"]
+          description: NULL = chưa điền, server chặn fail-closed, không coi là không giới hạn
+          example: 20
+        unit:
+          type: [string, "null"]
+          example: nguoi
+    PlanLimitsUpdate:
+      type: object
+      required: [plan_type, limits]
+      properties:
+        plan_type:
+          type: string
+          enum: [FREE, PREMIUM]
+        limits:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [limit_key, limit_value]
+            properties:
+              limit_key:
+                type: string
+                enum: [recipient_limit, ai_requests_per_day, active_gift_ideas]
+              limit_value:
+                type: [integer, "null"]
+                minimum: 0
+                description: Đặt NULL để đánh dấu chưa điền (fail-closed)
+    PlanUpdate:
+      type: object
+      required: [plan_type]
+      properties:
+        plan_type:
+          type: string
+          enum: [FREE, PREMIUM]
+    AdminUser:
+      type: object
+      description: Tài khoản user nhìn từ phía Admin (UC-16)
+      required: [id, email, display_name, role, status, plan_type]
+      properties:
+        id:
+          type: integer
+          format: int64
+        email:
+          type: [string, "null"]
+          format: email
+        display_name:
+          type: string
+        role:
+          type: string
+          enum: [USER, ADMIN]
+        status:
+          type: string
+          enum: [ACTIVE, DISABLED, DELETED]
+        plan_type:
+          type: string
+          enum: [FREE, PREMIUM]
+        created_at:
+          type: string
+          format: date-time
+    AdminUserPage:
+      type: object
+      required: [items, page, size, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminUser'
+        page:
+          type: integer
+          example: 0
+        size:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 1
+    Recipient:
+      type: object
+      description: Map 1-1 bảng recipients
+      required: [id, name, is_favourite]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+          maxLength: 150
+        relationship:
+          type: [string, "null"]
+          enum: [FAMILY, FRIEND, PARTNER, COLLEAGUE, TEACHER, OTHER]
+        relationship_detail:
+          type: [string, "null"]
+          maxLength: 100
+          description: Ghi chú thêm về mối quan hệ, vd "Bạn đại học"
+        age_group:
+          type: [string, "null"]
+          enum: [CHILD, TEEN, ADULT, SENIOR, UNKNOWN]
+        birth_day:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 31
+          description: Đi cùng birth_month (cả hai có hoặc cả hai không)
+        birth_month:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 12
+        birth_year:
+          type: [integer, "null"]
+        notes:
+          type: [string, "null"]
+          maxLength: 500
+        is_favourite:
+          type: boolean
+          default: false
+        version:
+          type: integer
+          description: Optimistic locking (cột version của bảng)
+          example: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    RecipientCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 150
+        relationship:
+          type: string
+          enum: [FAMILY, FRIEND, PARTNER, COLLEAGUE, TEACHER, OTHER]
+        relationship_detail:
+          type: string
+          maxLength: 100
+        age_group:
+          type: string
+          enum: [CHILD, TEEN, ADULT, SENIOR, UNKNOWN]
+        birth_day:
+          type: integer
+          minimum: 1
+          maximum: 31
+        birth_month:
+          type: integer
+          minimum: 1
+          maximum: 12
+        birth_year:
+          type: integer
+        notes:
+          type: string
+          maxLength: 500
+        is_favourite:
+          type: boolean
+    RecipientUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 150
+        relationship:
+          type: string
+          enum: [FAMILY, FRIEND, PARTNER, COLLEAGUE, TEACHER, OTHER]
+        relationship_detail:
+          type: string
+          maxLength: 100
+        age_group:
+          type: string
+          enum: [CHILD, TEEN, ADULT, SENIOR, UNKNOWN]
+        birth_day:
+          type: integer
+          minimum: 1
+          maximum: 31
+        birth_month:
+          type: integer
+          minimum: 1
+          maximum: 12
+        birth_year:
+          type: integer
+        notes:
+          type: string
+          maxLength: 500
+        is_favourite:
+          type: boolean
+    RecipientPage:
+      type: object
+      required: [items, page, size, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Recipient'
+        page:
+          type: integer
+          example: 0
+        size:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 3
+    RecipientPreference:
+      type: object
+      description: Map 1-1 bảng recipient_preferences
+      required: [id, recipient_id, category, value, polarity, source, is_active]
+      properties:
+        id:
+          type: integer
+          format: int64
+        recipient_id:
+          type: integer
+          format: int64
+        category:
+          type: string
+          maxLength: 80
+          example: Đồ ăn
+        value:
+          type: string
+          maxLength: 200
+          example: Trà sữa
+        polarity:
+          type: string
+          enum: [LIKE, DISLIKE, AVOID]
+        source:
+          type: string
+          enum: [USER, AI_INFERRED]
+        confirmed_at:
+          type: [string, "null"]
+          format: date-time
+          description: Thời điểm user xác nhận sở thích do AI suy ra
+        is_active:
+          type: boolean
+          default: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    RecipientPreferenceCreate:
+      type: object
+      required: [category, value, polarity]
+      properties:
+        category:
+          type: string
+          maxLength: 80
+        value:
+          type: string
+          maxLength: 200
+        polarity:
+          type: string
+          enum: [LIKE, DISLIKE, AVOID]
+        source:
+          type: string
+          enum: [USER, AI_INFERRED]
+          default: USER
+    RecipientPreferenceUpdate:
+      type: object
+      properties:
+        value:
+          type: string
+          maxLength: 200
+        polarity:
+          type: string
+          enum: [LIKE, DISLIKE, AVOID]
+        is_active:
+          type: boolean
+        confirmed_at:
+          type: string
+          format: date-time
+    RecipientPreferencePage:
+      type: object
+      required: [items, page, size, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecipientPreference'
+        page:
+          type: integer
+          example: 0
+        size:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 2
+    Event:
+      type: object
+      description: Map 1-1 bảng events
+      required: [id, title, event_type, calendar_type, original_day, original_month, recurrence_frequency]
+      properties:
+        id:
+          type: integer
+          format: int64
+        title:
+          type: string
+          maxLength: 150
+        event_type:
+          type: string
+          enum: [BIRTHDAY, ANNIVERSARY, WEDDING, GRADUATION, HOLIDAY, CUSTOM]
+        occasion_type:
+          type: [string, "null"]
+          enum: [BIRTHDAY, ANNIVERSARY, HOLIDAY, OTHER]
+        calendar_type:
+          type: string
+          enum: [SOLAR, LUNAR]
+          default: SOLAR
+        original_day:
+          type: integer
+          minimum: 1
+          maximum: 31
+        original_month:
+          type: integer
+          minimum: 1
+          maximum: 12
+        original_year:
+          type: [integer, "null"]
+        is_year_known:
+          type: boolean
+          default: true
+        is_lunar_leap_month:
+          type: boolean
+          default: false
+        recurrence_frequency:
+          type: string
+          enum: [NONE, ANNUAL]
+          default: ANNUAL
+        leap_day_policy:
+          type: [string, "null"]
+          enum: [FEB28, MAR01, SKIP]
+          description: Cách xử lý ngày 29/2 vào năm không nhuận
+        timezone:
+          type: string
+          default: Asia/Ho_Chi_Minh
+        start_date:
+          type: [string, "null"]
+          format: date
+        end_date:
+          type: [string, "null"]
+          format: date
+        default_budget:
+          type: [number, "null"]
+          description: Ngân sách mặc định cho dịp này, VND NUMERIC(18,2)
+        notes:
+          type: [string, "null"]
+          maxLength: 500
+        version:
+          type: integer
+          example: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    EventCreate:
+      type: object
+      required: [title, event_type, original_day, original_month, recipient_ids]
+      properties:
+        title:
+          type: string
+          maxLength: 150
+        event_type:
+          type: string
+          enum: [BIRTHDAY, ANNIVERSARY, WEDDING, GRADUATION, HOLIDAY, CUSTOM]
+        occasion_type:
+          type: string
+          enum: [BIRTHDAY, ANNIVERSARY, HOLIDAY, OTHER]
+        calendar_type:
+          type: string
+          enum: [SOLAR, LUNAR]
+          default: SOLAR
+        original_day:
+          type: integer
+          minimum: 1
+          maximum: 31
+        original_month:
+          type: integer
+          minimum: 1
+          maximum: 12
+        original_year:
+          type: integer
+        is_year_known:
+          type: boolean
+        is_lunar_leap_month:
+          type: boolean
+        recurrence_frequency:
+          type: string
+          enum: [NONE, ANNUAL]
+          default: ANNUAL
+        leap_day_policy:
+          type: string
+          enum: [FEB28, MAR01, SKIP]
+        timezone:
+          type: string
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        default_budget:
+          type: number
+        notes:
+          type: string
+          maxLength: 500
+        recipient_ids:
+          type: array
+          minItems: 1
+          description: >
+            Mảng đầu vào (suy ra, không phải cột DB) — map sang bảng nối
+            event_recipients. Bắt buộc ít nhất 1 người nhận (trigger DB chặn
+            lưu sự kiện không có người nhận).
+          items:
+            type: integer
+            format: int64
+    EventUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 150
+        event_type:
+          type: string
+          enum: [BIRTHDAY, ANNIVERSARY, WEDDING, GRADUATION, HOLIDAY, CUSTOM]
+        occasion_type:
+          type: string
+          enum: [BIRTHDAY, ANNIVERSARY, HOLIDAY, OTHER]
+        calendar_type:
+          type: string
+          enum: [SOLAR, LUNAR]
+        original_day:
+          type: integer
+          minimum: 1
+          maximum: 31
+        original_month:
+          type: integer
+          minimum: 1
+          maximum: 12
+        original_year:
+          type: integer
+        is_year_known:
+          type: boolean
+        is_lunar_leap_month:
+          type: boolean
+        recurrence_frequency:
+          type: string
+          enum: [NONE, ANNUAL]
+        leap_day_policy:
+          type: string
+          enum: [FEB28, MAR01, SKIP]
+        timezone:
+          type: string
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        default_budget:
+          type: number
+        notes:
+          type: string
+          maxLength: 500
+    EventPage:
+      type: object
+      required: [items, page, size, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Event'
+        page:
+          type: integer
+          example: 0
+        size:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 2
+    EventRecipient:
+      type: object
+      description: Map 1-1 bảng nối event_recipients
+      required: [event_id, recipient_id, is_primary]
+      properties:
+        event_id:
+          type: integer
+          format: int64
+        recipient_id:
+          type: integer
+          format: int64
+        recipient_name:
+          type: string
+          description: Tên người nhận (lấy qua join recipients, để hiển thị)
+        is_primary:
+          type: boolean
+          default: false
+    EventRecipientCreate:
+      type: object
+      required: [recipient_id]
+      properties:
+        recipient_id:
+          type: integer
+          format: int64
+        is_primary:
+          type: boolean
+          default: false
+    OccurrenceRecipient:
+      type: object
+      description: Map 1-1 bảng nối occurrence_recipients
+      required: [occurrence_id, recipient_id]
+      properties:
+        occurrence_id:
+          type: integer
+          format: int64
+        recipient_id:
+          type: integer
+          format: int64
+        recipient_name:
+          type: string
+          description: Tên người nhận (lấy qua join recipients, để hiển thị)
+    EventOccurrence:
+      type: object
+      description: Map 1-1 bảng event_occurrences
+      required: [id, event_id, local_date, status]
+      properties:
+        id:
+          type: integer
+          format: int64
+        event_id:
+          type: integer
+          format: int64
+        nominal_date:
+          type: [string, "null"]
+          format: date
+          description: Ngày danh nghĩa theo lịch gốc (vd. ngày âm lịch quy đổi)
+        local_date:
+          type: string
+          format: date
+          description: Ngày diễn ra theo múi giờ của sự kiện
+        title:
+          type: [string, "null"]
+          maxLength: 150
+        status:
+          type: string
+          enum: [PLANNED, PREPARING, COMPLETED, SKIPPED, ACTIVE, CANCELLED]
+        note:
+          type: [string, "null"]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    EventOccurrenceUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 150
+        status:
+          type: string
+          enum: [PLANNED, PREPARING, COMPLETED, SKIPPED, ACTIVE, CANCELLED]
+        note:
+          type: string
+    EventOccurrencePage:
+      type: object
+      required: [items, page, size, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventOccurrence'
+        page:
+          type: integer
+          example: 0
+        size:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 3
+    CalendarItem:
+      type: object
+      description: >
+        1 lần diễn ra hiển thị trên lịch. Trường event_title lấy từ events.title
+        qua join (suy ra, không phải cột của event_occurrences).
+      required: [occurrence_id, event_id, event_title, local_date, status]
+      properties:
+        occurrence_id:
+          type: integer
+          format: int64
+        event_id:
+          type: integer
+          format: int64
+        event_title:
+          type: string
+        local_date:
+          type: string
+          format: date
+        title:
+          type: [string, "null"]
+          description: Tiêu đề riêng của lần diễn ra (nếu có)
+        status:
+          type: string
+          enum: [PLANNED, PREPARING, COMPLETED, SKIPPED, ACTIVE, CANCELLED]
+    CalendarPage:
+      type: object
+      required: [items, from, to]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CalendarItem'
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+    Budget:
+      type: object
+      description: Map 1-1 bảng budgets
+      required: [id, scope_type, amount, currency, alert_threshold_percent]
+      properties:
+        id:
+          type: integer
+          format: int64
+        scope_type:
+          type: string
+          enum: [ANNUAL, EVENT]
+        scope_year:
+          type: [integer, "null"]
+          description: Bắt buộc khi scope ANNUAL, NULL khi scope EVENT
+        occurrence_id:
+          type: [integer, "null"]
+          format: int64
+          description: Bắt buộc khi scope EVENT, NULL khi scope ANNUAL
+        amount:
+          type: number
+          description: Hạn mức, VND NUMERIC(18,2), phải > 0
+          example: 5000000
+        currency:
+          type: string
+          default: VND
+          example: VND
+        alert_threshold_percent:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 80
+          description: Ngưỡng cảnh báo theo % hạn mức
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    BudgetCreate:
+      type: object
+      required: [scope_type, amount]
+      properties:
+        scope_type:
+          type: string
+          enum: [ANNUAL, EVENT]
+        scope_year:
+          type: integer
+        occurrence_id:
+          type: integer
+          format: int64
+        amount:
+          type: number
+        currency:
+          type: string
+          default: VND
+        alert_threshold_percent:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 80
+    BudgetUpdate:
+      type: object
+      properties:
+        amount:
+          type: number
+        alert_threshold_percent:
+          type: integer
+          minimum: 1
+          maximum: 100
+    BudgetPage:
+      type: object
+      required: [items, page, size, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Budget'
+        page:
+          type: integer
+          example: 0
+        size:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 2
+    BudgetSummary:
+      type: object
+      description: >
+        Tổng hợp 1 ngân sách: hạn mức, chi thực tế (từ view
+        v_actual_spend_by_occurrence), phần trăm đã dùng, cờ cảnh báo.
+      required: [budget_id, scope_type, amount, spent, percent_used, alert]
+      properties:
+        budget_id:
+          type: integer
+          format: int64
+        scope_type:
+          type: string
+          enum: [ANNUAL, EVENT]
+        scope_year:
+          type: [integer, "null"]
+        occurrence_id:
+          type: [integer, "null"]
+          format: int64
+        amount:
+          type: number
+          description: Hạn mức
+        spent:
+          type: number
+          description: Chi thực tế đã ghi nhận
+        remaining:
+          type: number
+          description: Hạn mức trừ chi thực tế (âm nếu vượt)
+        percent_used:
+          type: number
+          description: Phần trăm đã dùng (spent / amount * 100)
+          example: 90
+        alert_threshold_percent:
+          type: integer
+          example: 80
+        alert:
+          type: boolean
+          description: true khi percent_used >= alert_threshold_percent
+        currency:
+          type: string
+          example: VND
+    BudgetSummaryResponse:
+      type: object
+      required: [items, total_budget, total_spent]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BudgetSummary'
+        total_budget:
+          type: number
+          description: Tổng hạn mức các ngân sách trong phạm vi lọc
+        total_spent:
+          type: number
+          description: Tổng chi thực tế trong phạm vi lọc
+        currency:
+          type: string
+          example: VND
+    Gift:
+      type: object
+      description: >
+        Map 1-1 bảng gifts. actual_spend suy ra từ view v_gift_actual_spend
+        (SUM expenses), không phải cột của gifts.
+      required: [id, recipient_id, name, source, status]
+      properties:
+        id:
+          type: integer
+          format: int64
+        recipient_id:
+          type: integer
+          format: int64
+        occurrence_id:
+          type: [integer, "null"]
+          format: int64
+        suggestion_id:
+          type: [integer, "null"]
+          format: int64
+          description: Gợi ý AI gốc (nếu quà được lưu từ AI)
+        name:
+          type: string
+          maxLength: 200
+        category:
+          type: [string, "null"]
+          maxLength: 80
+        source:
+          type: string
+          enum: [MANUAL, AI]
+        status:
+          type: string
+          enum: [IDEA, CONSIDERING, SELECTED, PURCHASED, GIVEN, RETURNED, CANCELLED]
+        status_changed_at:
+          type: [string, "null"]
+          format: date-time
+        canonical_key:
+          type: [string, "null"]
+          maxLength: 150
+          description: Khóa chuẩn hóa để đối soát trùng quà
+        product_url:
+          type: [string, "null"]
+          format: uri
+        image_url:
+          type: [string, "null"]
+          description: Chỉ URL text, không upload file
+        estimated_amount:
+          type: [number, "null"]
+          description: Giá dự kiến, VND NUMERIC(18,2)
+        purchased_on:
+          type: [string, "null"]
+          format: date
+        given_on:
+          type: [string, "null"]
+          format: date
+        follow_up_prompted_at:
+          type: [string, "null"]
+          format: date-time
+        follow_up_dismissed_at:
+          type: [string, "null"]
+          format: date-time
+        note:
+          type: [string, "null"]
+        reaction:
+          type: [string, "null"]
+          enum: [LOVED, LIKED, NEUTRAL, UNKNOWN]
+          description: Cảm nhận sau khi tặng
+        actual_spend:
+          type: [number, "null"]
+          description: Chi thực tế = SUM(expenses) qua view v_gift_actual_spend
+        version:
+          type: integer
+          example: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    GiftCreate:
+      type: object
+      required: [name, recipient_id]
+      properties:
+        name:
+          type: string
+          maxLength: 200
+        recipient_id:
+          type: integer
+          format: int64
+        occurrence_id:
+          type: integer
+          format: int64
+        suggestion_id:
+          type: integer
+          format: int64
+        category:
+          type: string
+          maxLength: 80
+        estimated_amount:
+          type: number
+        product_url:
+          type: string
+          format: uri
+        image_url:
+          type: string
+        note:
+          type: string
+    GiftUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 200
+        category:
+          type: string
+          maxLength: 80
+        estimated_amount:
+          type: number
+        product_url:
+          type: string
+          format: uri
+        image_url:
+          type: string
+        note:
+          type: string
+        purchased_on:
+          type: string
+          format: date
+        given_on:
+          type: string
+          format: date
+        reaction:
+          type: string
+          enum: [LOVED, LIKED, NEUTRAL, UNKNOWN]
+    GiftStatusUpdate:
+      type: object
+      required: [to_status]
+      properties:
+        to_status:
+          type: string
+          enum: [IDEA, CONSIDERING, SELECTED, PURCHASED, GIVEN, RETURNED, CANCELLED]
+          description: Trạng thái đích; chuyển sai trả 409
+        purchased_on:
+          type: string
+          format: date
+          description: Bắt buộc khi to_status=PURCHASED
+        given_on:
+          type: string
+          format: date
+          description: Nên có khi to_status=GIVEN
+    GiftPage:
+      type: object
+      required: [items, page, size, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Gift'
+        page:
+          type: integer
+          example: 0
+        size:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 5
+    DuplicateMatch:
+      type: object
+      required: [gift_id, name]
+      properties:
+        gift_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        category:
+          type: [string, "null"]
+        given_on:
+          type: [string, "null"]
+          format: date
+          description: Ngày đã tặng món này trước đây
+        occurrence_id:
+          type: [integer, "null"]
+          format: int64
+    DuplicateCheckResult:
+      type: object
+      required: [is_duplicate, matches]
+      properties:
+        is_duplicate:
+          type: boolean
+          description: true nếu tìm thấy món quà tương tự đã tặng
+        matches:
+          type: array
+          items:
+            $ref: '#/components/schemas/DuplicateMatch'
+    Expense:
+      type: object
+      description: Map 1-1 bảng expenses — nguồn duy nhất của chi thực tế
+      required: [id, expense_type, amount, currency, occurred_at, is_counted_in_actual_spend]
+      properties:
+        id:
+          type: integer
+          format: int64
+        gift_id:
+          type: [integer, "null"]
+          format: int64
+        occurrence_id:
+          type: [integer, "null"]
+          format: int64
+        expense_type:
+          type: string
+          enum: [GIFT, SHIPPING, WRAPPING, OTHER]
+        amount:
+          type: number
+          description: VND NUMERIC(18,2), >= 0
+          example: 250000
+        currency:
+          type: string
+          default: VND
+        occurred_at:
+          type: string
+          format: date
+        description:
+          type: [string, "null"]
+          maxLength: 200
+        is_counted_in_actual_spend:
+          type: boolean
+          default: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ExpenseCreate:
+      type: object
+      required: [expense_type, amount, occurred_at]
+      properties:
+        expense_type:
+          type: string
+          enum: [GIFT, SHIPPING, WRAPPING, OTHER]
+        amount:
+          type: number
+        currency:
+          type: string
+          default: VND
+        occurred_at:
+          type: string
+          format: date
+        description:
+          type: string
+          maxLength: 200
+        occurrence_id:
+          type: integer
+          format: int64
+        is_counted_in_actual_spend:
+          type: boolean
+          default: true
+    ExpenseUpdate:
+      type: object
+      properties:
+        amount:
+          type: number
+        occurred_at:
+          type: string
+          format: date
+        description:
+          type: string
+          maxLength: 200
+        is_counted_in_actual_spend:
+          type: boolean
+    ExpensePage:
+      type: object
+      required: [items, page, size, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Expense'
+        page:
+          type: integer
+          example: 0
+        size:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 2
+    ReminderRule:
+      type: object
+      description: Map 1-1 bảng reminder_rules
+      required: [id, event_id, days_before, reminder_time, enabled]
+      properties:
+        id:
+          type: integer
+          format: int64
+        event_id:
+          type: integer
+          format: int64
+        days_before:
+          type: integer
+          enum: [14, 7, 3, 1, 0]
+        reminder_time:
+          type: string
+          pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+          default: '09:00'
+          description: Giờ nhắc trong ngày, định dạng HH:mm
+          example: '09:00'
+        enabled:
+          type: boolean
+          default: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ReminderRuleCreate:
+      type: object
+      required: [days_before]
+      properties:
+        days_before:
+          type: integer
+          enum: [14, 7, 3, 1, 0]
+        reminder_time:
+          type: string
+          pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+          default: '09:00'
+        enabled:
+          type: boolean
+          default: true
+    ReminderRuleUpdate:
+      type: object
+      properties:
+        days_before:
+          type: integer
+          enum: [14, 7, 3, 1, 0]
+        reminder_time:
+          type: string
+          pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+        enabled:
+          type: boolean
+    Notification:
+      type: object
+      description: Map 1-1 bảng notifications
+      required: [id, occurrence_id, type, days_before, scheduled_at, status, deduplication_key, snooze_count]
+      properties:
+        id:
+          type: integer
+          format: int64
+        occurrence_id:
+          type: integer
+          format: int64
+        type:
+          type: string
+          enum: [PREPARE_GIFT, EVENT_TODAY, FOLLOW_UP]
+        days_before:
+          type: integer
+          enum: [14, 7, 3, 1, 0]
+        scheduled_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [PENDING, SENT, FAILED, CANCELLED, SNOOZED]
+        deduplication_key:
+          type: string
+          maxLength: 150
+          description: Khóa chống nhắc trùng
+        snooze_count:
+          type: integer
+          minimum: 0
+          default: 0
+        sent_at:
+          type: [string, "null"]
+          format: date-time
+        read_at:
+          type: [string, "null"]
+          format: date-time
+        error_code:
+          type: [string, "null"]
+          maxLength: 100
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    NotificationUpdate:
+      type: object
+      properties:
+        read:
+          type: boolean
+          description: true = đánh dấu đã đọc (đặt read_at)
+        snooze:
+          type: boolean
+          description: true = hoãn nhắc (status SNOOZED, tăng snooze_count)
+    NotificationPage:
+      type: object
+      required: [items, page, size, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notification'
+        page:
+          type: integer
+          example: 0
+        size:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 4
+    UserDevice:
+      type: object
+      description: Map 1-1 bảng user_devices
+      required: [id, installation_id, platform, notification_permission, last_seen_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        installation_id:
+          type: string
+          maxLength: 100
+          description: ID cài đặt duy nhất của app trên thiết bị
+        platform:
+          type: string
+          enum: [ANDROID, IOS, WEB]
+        push_token:
+          type: [string, "null"]
+          description: Token FCM/APNs để gửi push
+        notification_permission:
+          type: string
+          enum: [GRANTED, DENIED, NOT_ASKED]
+          default: NOT_ASKED
+        last_seen_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    UserDeviceCreate:
+      type: object
+      required: [installation_id, platform]
+      properties:
+        installation_id:
+          type: string
+          maxLength: 100
+        platform:
+          type: string
+          enum: [ANDROID, IOS, WEB]
+        push_token:
+          type: string
+    UserDeviceUpdate:
+      type: object
+      properties:
+        push_token:
+          type: string
+        notification_permission:
+          type: string
+          enum: [GRANTED, DENIED, NOT_ASKED]
+    UserDevicePage:
+      type: object
+      required: [items, page, size, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserDevice'
+        page:
+          type: integer
+          example: 0
+        size:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 1
+    AiSuggestionRequest:
+      type: object
+      description: Đầu vào cho POST /ai/suggestions (UC-14)
+      required: [recipient_id]
+      properties:
+        recipient_id:
+          type: integer
+          format: int64
+        occurrence_id:
+          type: integer
+          format: int64
+          description: Dịp tặng (để lấy event_type, ngày diễn ra)
+        budget_min:
+          type: number
+          description: Khoảng giá tối thiểu, VND
+        budget_max:
+          type: number
+          description: Khoảng giá tối đa, VND
+        additional_instruction:
+          type: string
+          description: Ghi chú thêm cho AI, vd "người nhận thích đồ thủ công"
+    AiSuggestion:
+      type: object
+      description: Map 1-1 bảng ai_suggestions (tối đa 5 gợi ý / 1 request)
+      required: [id, request_id, position, title]
+      properties:
+        id:
+          type: integer
+          format: int64
+        request_id:
+          type: integer
+          format: int64
+        position:
+          type: integer
+          minimum: 1
+          maximum: 5
+        title:
+          type: string
+          maxLength: 200
+        category:
+          type: [string, "null"]
+          maxLength: 100
+        estimated_price_min:
+          type: [number, "null"]
+        estimated_price_max:
+          type: [number, "null"]
+        reason:
+          type: [string, "null"]
+          description: Lý do AI gợi ý món này
+        caution:
+          type: [string, "null"]
+          description: Lưu ý khi mua/tặng món này
+        canonical_key:
+          type: [string, "null"]
+          maxLength: 150
+        duplicate_gift_id:
+          type: [integer, "null"]
+          format: int64
+          description: Món quà đã tặng trước đây trùng với gợi ý này (nếu có)
+        hidden_at:
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    AiRequest:
+      type: object
+      description: Map 1-1 bảng ai_requests (1 hàng / 1 lần gọi AI)
+      required: [id, status]
+      properties:
+        id:
+          type: integer
+          format: int64
+        recipient_id:
+          type: [integer, "null"]
+          format: int64
+        occurrence_id:
+          type: [integer, "null"]
+          format: int64
+        budget_min:
+          type: [number, "null"]
+        budget_max:
+          type: [number, "null"]
+        additional_instruction:
+          type: [string, "null"]
+        status:
+          type: string
+          enum: [QUEUED, GENERATED, FAILED, PARTIAL]
+        model_name:
+          type: [string, "null"]
+          maxLength: 100
+        token_input:
+          type: [integer, "null"]
+        token_output:
+          type: [integer, "null"]
+        cost_cents:
+          type: [integer, "null"]
+        suggestions:
+          type: array
+          items:
+            $ref: '#/components/schemas/AiSuggestion'
+          description: Tối đa 5 gợi ý, chỉ có khi lấy chi tiết 1 request
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: [string, "null"]
+          format: date-time
+    AiRequestPage:
+      type: object
+      required: [items, page, size, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AiRequest'
+        page:
+          type: integer
+          example: 0
+        size:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 2
+    AiQuota:
+      type: object
+      description: Quota AI của user trong ngày Việt Nam (reset 00:00 VN)
+      required: [plan_type, requests_used_today, suggestions_per_request, quota_date]
+      properties:
+        plan_type:
+          type: string
+          enum: [FREE, PREMIUM]
+        requests_used_today:
+          type: integer
+          description: Số lượt đã dùng hôm nay (chỉ tính GENERATED/PARTIAL)
+          example: 1
+        requests_per_day:
+          type: [integer, "null"]
+          description: >
+            Hạn mức lượt/ngày. Free: 2 (UC-14). Premium: X theo cấu hình Admin.
+            NULL = chưa điền, server chặn fail-closed.
+          example: 2
+        suggestions_per_request:
+          type: integer
+          description: >
+            Số sản phẩm tối đa mỗi lượt. Free: 3 (UC-14). Premium: Y.
+          example: 3
+        quota_date:
+          type: string
+          format: date
+          description: Ngày Việt Nam mà quota này áp dụng
+    AiSuggestionSave:
+      type: object
+      properties:
+        occurrence_id:
+          type: integer
+          format: int64
+          description: Gắn món quà đã lưu vào 1 lần diễn ra (tùy chọn)
+        note:
+          type: string
+          description: Ghi chú thêm khi lưu vào kho ý tưởng
+    SuggestionFeedbackCreate:
+      type: object
+      description: >
+        Phản hồi cho 1 gợi ý AI (UC-15, D12). Chỉ nhận lý do theo enum của
+        suggestion_feedback; không có cảm xúc Thích/Không thích.
+      properties:
+        reason:
+          type: [string, "null"]
+          enum: [TOO_EXPENSIVE, ALREADY_GIVEN, NOT_MATCHING_INTERESTS, NOT_MATCHING_OCCASION, OTHER]
+        detail:
+          type: string
+          description: Ghi chú thêm về phản hồi
+    SuggestionFeedback:
+      type: object
+      description: Map 1-1 bảng suggestion_feedback (1 phản hồi / 1 gợi ý)
+      required: [id, suggestion_id]
+      properties:
+        id:
+          type: integer
+          format: int64
+        suggestion_id:
+          type: integer
+          format: int64
+        reason:
+          type: [string, "null"]
+          enum: [TOO_EXPENSIVE, ALREADY_GIVEN, NOT_MATCHING_INTERESTS, NOT_MATCHING_OCCASION, OTHER]
+        detail:
+          type: [string, "null"]
+        created_at:
+          type: string
+          format: date-time
+    AdminAiStats:
+      type: object
+      description: >
+        1 hàng của view v_ai_daily_stats: thống kê theo ngày Việt Nam + model.
+        Không có thời gian phản hồi trung bình và tỉ lệ lỗi/Fallback (D13).
+      required: [stat_date, model, requests, failed_requests, total_tokens_in, total_tokens_out, total_cost_cents]
+      properties:
+        stat_date:
+          type: string
+          format: date
+          description: Ngày theo giờ Việt Nam
+        model:
+          type: string
+          description: Tên model, 'unknown' nếu không ghi model
+          example: gpt-4o-mini
+        requests:
+          type: integer
+          description: Số lượt gọi thành công (GENERATED/PARTIAL)
+        failed_requests:
+          type: integer
+          description: Số lượt gọi lỗi (FAILED)
+        total_tokens_in:
+          type: integer
+        total_tokens_out:
+          type: integer
+        total_cost_cents:
+          type: integer
+          description: Tổng chi phí API tính bằng cents

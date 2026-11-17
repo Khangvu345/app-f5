@@ -1,5 +1,5 @@
 CREATE TABLE users (
-    id            UUID         PRIMARY KEY DEFAULT uuidv7(),   -- uuidv7() is built in since PostgreSQL 18
+    id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,   -- uuidv7() is built in since PostgreSQL 18
     email         VARCHAR(255) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     full_name     VARCHAR(100) NOT NULL,

@@ -5,7 +5,7 @@ Stack: Expo (managed) · TypeScript · Expo Router · Zustand · Axios · expo-s
 ## Cài đặt
 
 ```bash
-npm install
+npm ci
 cp .env.example .env        # rồi chỉnh EXPO_PUBLIC_API_BASE_URL
 npm run android             # hoặc: npm start rồi mở bằng Expo Go
 ```

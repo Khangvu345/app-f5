@@ -1,34 +1,60 @@
-# Backend (Spring Boot 4.1.1 · Java 25 · PostgreSQL 18)
+# Backend
 
-Stack: Spring Boot 4.1.1 · Java 25 · Gradle (Kotlin DSL) · Spring Data JPA (Hibernate) · Flyway · Spring Security (JWT HS256) · PostgreSQL 18.
+Backend sử dụng Java 25, Spring Boot, Gradle và PostgreSQL 18.
 
-## Yêu cầu
+## Chạy backend bằng Docker
 
-- JDK 25 (Gradle toolchain sẽ tìm JDK 25 trên máy; cần cài sẵn hoặc bật tự tải toolchain).
-- PostgreSQL 18 chạy trên máy (cần PostgreSQL 18 vì migration dùng hàm `uuidv7()` có sẵn từ bản 18).
+Đây là cách chạy chung của nhóm. Xem hướng dẫn tạo `.env`, khởi động database,
+backend và pgAdmin trong [README gốc](../README.md).
 
-## Chạy local
+Các lệnh Docker Compose dưới đây chạy tại **thư mục gốc repository**.
 
-1. Tạo user và database (chạy bằng `psql -U postgres`):
+| Lệnh | Công dụng |
+| --- | --- |
+| `docker compose up -d --build` | Build và chạy các service |
+| `docker compose ps` | Xem trạng thái các service |
+| `docker compose logs -f backend` | Theo dõi log backend, nhấn `Ctrl+C` để thoát |
+| `docker compose up -d --build backend` | Build lại và chạy backend |
+| `docker compose down` | Dừng và xóa container, giữ volume dữ liệu |
 
-   ```sql
-   CREATE USER app WITH PASSWORD 'change-me-strong-password';
-   CREATE DATABASE appdb OWNER app;
-   ```
+## Lệnh Gradle thường dùng
 
-2. Tạo file cấu hình rồi chỉnh cho khớp (`DB_PASSWORD`, `JWT_SECRET`):
+Các lệnh trong phần này chạy tại thư mục `backend`. Máy cần có JDK 25.
+
+| Công dụng | Windows PowerShell | Git Bash / Linux / macOS |
+| --- | --- | --- |
+| Xem phiên bản Gradle và JVM | `.\gradlew.bat --version` | `./gradlew --version` |
+| Chạy test | `.\gradlew.bat test` | `./gradlew test` |
+| Build và chạy kiểm tra | `.\gradlew.bat build` | `./gradlew build` |
+| Tạo JAR Spring Boot | `.\gradlew.bat bootJar` | `./gradlew bootJar` |
+| Xóa kết quả build | `.\gradlew.bat clean` | `./gradlew clean` |
+| Chạy backend trên máy | `.\gradlew.bat bootRun` | `./gradlew bootRun` |
+
+Kết quả build nằm trong `backend/build`. Báo cáo test HTML nằm tại
+`backend/build/reports/tests/test/index.html`.
+
+Trước khi mở PR có thay đổi backend, chạy `test` và kiểm tra kết quả.
+
+## Chạy backend trên máy, dùng database Docker
+
+Cách này dành cho khi cần chạy hoặc debug Java trực tiếp trên máy.
+
+1. Tạo và điền `.env` ở gốc repo theo [README gốc](../README.md).
+2. Tại gốc repo, chạy database và dừng backend container nếu đang chạy:
 
    ```bash
-   cp .env.example .env
+   docker compose up -d db
+   docker compose stop backend
    ```
 
-3. Chạy API (Flyway tự tạo bảng khi khởi động):
+3. Sao chép `backend/.env.example` thành `backend/.env`.
+4. Trong `backend/.env`, đặt `DB_HOST=localhost`. Các giá trị `DB_NAME`,
+   `DB_USER`, `DB_PASSWORD` và `JWT_SECRET` phải khớp cấu hình đang dùng.
+   `DB_PORT` phải bằng `DB_HOST_PORT` trong `.env` ở gốc repo. Nếu dùng mặc
+   định thì cả hai là `5432`.
+5. Mở terminal tại `backend`, chạy `bootRun` bằng lệnh trong bảng ở trên.
 
-   ```bash
-   ./gradlew bootRun        # http://localhost:8080
-   ```
-
-Chạy test: `./gradlew test`.
+Backend container và backend chạy trên máy cùng dùng cổng `8080` theo mặc định.
 
 ## Cấu trúc
 

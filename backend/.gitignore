@@ -1,0 +1,32 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# Environment files (keep the example)
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+*.iml
+*.iws
+.vscode/*
+!.vscode/extensions.json
+.classpath
+.project
+.settings/
+bin/
+out/
+.apt_generated/
+.factorypath
+.sts4/
+
+# Logs / OS
+*.log
+logs/
+.DS_Store
+Thumbs.db

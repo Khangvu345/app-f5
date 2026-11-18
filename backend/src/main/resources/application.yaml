@@ -16,8 +16,7 @@ spring:
     enabled: true
 
 springdoc:
-  api-docs:
-    enabled: false # tắt spec tự sinh từ code; nguồn duy nhất là file YAML tĩnh
+  enable-default-api-docs: false
   swagger-ui:
     path: /swagger-ui.html
     url: /openapi/GiftMate_API_Contract_v1.yaml # file contract, phục vụ bởi OpenApiConfig

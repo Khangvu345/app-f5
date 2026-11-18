@@ -49,7 +49,7 @@ jobs:
           cache: gradle
 
       - name: Test backend
-        run: ./gradlew test --no-daemon
+        run: ./gradlew openApiValidate generateMobileApi test --no-daemon
   
   commit-check:
     runs-on: ubuntu-latest

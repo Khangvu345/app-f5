@@ -5,19 +5,19 @@ info:
   description: >
     API contract v1 của GiftMate — nguồn duy nhất (contract-first, hướng A).
     Base path /api/v1. Auth: Bearer JWT, mọi dữ liệu scoping theo user_id.
-    ID là BIGINT, trả dạng số JSON (không dạng chuỗi). Tiền VND NUMERIC(18,2).
+    ID là BIGINT, truyền qua API dưới dạng chuỗi chữ số. Tiền VND NUMERIC(18,2).
     Ngày giờ ISO 8601 theo Asia/Ho_Chi_Minh. Xóa mềm (deleted_at), DELETE trả 204.
     Nhóm AI (UC-14/UC-15) có trong contract để đủ map 16 UC nhưng CHƯA TRIỂN KHAI
     ở đợt này (phát triển sau, Q3) — gọi endpoint AI trước khi triển khai sẽ trả 501.
     Trial Premium (Q5) chờ quyết định nhóm — v1 chưa có premium_until.
-    OAuth chỉ Google + Apple (Q2: bỏ Facebook khỏi UC-01, enum auth_provider giữ EMAIL/GOOGLE/APPLE, không sửa DB).
+    OAuth chỉ Google + Apple (Q2: bỏ Facebook khỏi UC-01, enum authProvider giữ EMAIL/GOOGLE/APPLE, không sửa DB).
   license:
     name: Chưa công bố — nội bộ dự án GiftMate
     identifier: LicenseRef-Proprietary
   contact:
     name: GiftMate
 servers:
-  - url: http://localhost:8080
+  - url: /api/v1
     description: Backend local theo application.yaml (port 8080)
 tags:
   - name: Auth
@@ -49,7 +49,7 @@ paths:
       operationId: registerUser
       summary: Đăng ký tài khoản mới bằng email
       description: >
-        UC-01. Tạo tài khoản EMAIL (auth_provider=EMAIL). Email phải duy nhất;
+        UC-01. Tạo tài khoản EMAIL (authProvider=EMAIL). Email phải duy nhất;
         trùng email trả 409. Tạo kèm user_settings mặc định (timezone
         Asia/Ho_Chi_Minh, locale vi, currency VND, plan FREE).
       security: []
@@ -103,8 +103,8 @@ paths:
       summary: Đăng nhập bằng tài khoản Google hoặc Apple
       description: >
         UC-01. Chỉ hỗ trợ GOOGLE và APPLE (Q2: bỏ Facebook). Provider khác trả 400.
-        Body chứa id_token do nhà cung cấp cấp. Lần đầu đăng nhập: tạo user mới
-        (auth_provider=GOOGLE/APPLE, provider_subject lấy từ id_token) + user_settings
+        Body chứa idToken do nhà cung cấp cấp. Lần đầu đăng nhập: tạo user mới
+        (authProvider=GOOGLE/APPLE, provider_subject lấy từ idToken) + user_settings
         mặc định. Đã có tài khoản cùng provider_subject thì đăng nhập thẳng.
       security: []
       parameters:
@@ -185,8 +185,7 @@ paths:
       summary: Đồng bộ dữ liệu Guest (cục bộ) vào tài khoản
       description: >
         UC-01 (D6). Sau khi Guest đăng ký/đăng nhập, gom dữ liệu cục bộ (người nhận,
-        sự kiện, quà) gộp vào tài khoản. Server tạo mới các bản ghi, bỏ qua bản ghi
-        đã tồn tại (trùng tên người nhận / trùng sự kiện). Chỉ nhận dữ liệu của chính
+        sự kiện, quà) gộp vào tài khoản. Server nhận diện bản ghi theo tài khoản, entityType và localId. Gửi lại trả cùng serverId. Chỉ nhận dữ liệu của chính
         user đang đăng nhập.
       requestBody:
         required: true
@@ -211,7 +210,7 @@ paths:
       operationId: getMe
       summary: Lấy hồ sơ của mình
       description: >
-        UC-02. Trả thông tin users + user_settings gộp (display_name, plan_type,
+        UC-02. Trả thông tin users + user_settings gộp (displayName, planType,
         timezone, locale, currency). Không có trường avatar (D11: v2.2 không có
         cột avatar).
       responses:
@@ -228,7 +227,7 @@ paths:
       operationId: updateMe
       summary: Cập nhật tên hiển thị
       description: >
-        UC-02. Chỉ đổi được display_name (cột user_settings.display_name).
+        UC-02. Chỉ đổi được displayName (cột user_settings.displayName).
         Các cài đặt khác đổi qua PATCH /users/me/settings.
       requestBody:
         required: true
@@ -345,8 +344,8 @@ paths:
       operationId: updateMySettings
       summary: Cập nhật cài đặt
       description: >
-        UC-02. Chỉ cập nhật các trường gửi kèm. default_reminder_offsets chỉ
-        nhận các mốc 14, 7, 3, 1, 0. plan_type không đổi qua endpoint này
+        UC-02. Chỉ cập nhật các trường gửi kèm. defaultReminderOffsets chỉ
+        nhận các mốc 14, 7, 3, 1, 0. planType không đổi qua endpoint này
         (đổi gói do Admin cấp qua UC-16).
       requestBody:
         required: true
@@ -405,7 +404,7 @@ paths:
       description: >
         UC-04. Tên bắt buộc (bỏ trống trả 400). Gói Free giới hạn 20 người nhận
         (plan_limits FREE.recipient_limit); vượt giới hạn trả 403 mã
-        RECIPIENT_LIMIT_REACHED. birth_day và birth_month phải đi cùng nhau
+        RECIPIENT_LIMIT_REACHED. birthDay và birthMonth phải đi cùng nhau
         (cả hai có hoặc cả hai không) theo CHECK của DB.
       requestBody:
         required: true
@@ -496,7 +495,7 @@ paths:
       summary: Liệt kê sở thích của 1 người nhận
       description: >
         UC-04. Lọc theo polarity (LIKE/DISLIKE/AVOID). Mặc định chỉ trả
-        sở thích đang hoạt động (is_active=true); truyền include_inactive=true
+        sở thích đang hoạt động (isActive=true); truyền includeInactive=true
         để lấy cả sở thích đã tắt.
       parameters:
         - $ref: '#/components/parameters/IdParam'
@@ -508,7 +507,7 @@ paths:
           schema:
             type: string
             enum: [LIKE, DISLIKE, AVOID]
-        - name: include_inactive
+        - name: includeInactive
           in: query
           required: false
           schema:
@@ -566,8 +565,7 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            $ref: '#/components/schemas/ServerId'
       responses:
         '200':
           description: Sở thích
@@ -584,7 +582,7 @@ paths:
       operationId: updatePreference
       summary: Sửa sở thích
       description: >
-        UC-04. Sửa được value, polarity, is_active và confirmed_at
+        UC-04. Sửa được value, polarity, isActive và confirmedAt
         (đánh dấu đã xác nhận sở thích do AI suy ra).
       parameters:
         - $ref: '#/components/parameters/IdParam'
@@ -592,8 +590,7 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            $ref: '#/components/schemas/ServerId'
       requestBody:
         required: true
         content:
@@ -626,8 +623,7 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            $ref: '#/components/schemas/ServerId'
       responses:
         '204':
           description: Đã xóa
@@ -641,13 +637,13 @@ paths:
       operationId: listEvents
       summary: Liệt kê sự kiện của mình
       description: >
-        UC-06, UC-07. Lọc theo loại dịp (event_type) và khoảng ngày
-        (start_date, end_date lọc theo local_date của lần diễn ra).
+        UC-06, UC-07. Lọc theo loại dịp (eventType) và khoảng ngày
+        (startDate, endDate lọc theo localDate của lần diễn ra).
         Sắp xếp theo ngày diễn ra gần nhất.
       parameters:
         - $ref: '#/components/parameters/PageParam'
         - $ref: '#/components/parameters/SizeParam'
-        - name: event_type
+        - name: eventType
           in: query
           required: false
           schema:
@@ -679,10 +675,10 @@ paths:
       operationId: createEvent
       summary: Tạo sự kiện mới
       description: >
-        UC-06. Bắt buộc có ít nhất 1 người nhận (recipient_ids, tối thiểu 1 phần tử)
+        UC-06. Bắt buộc có ít nhất 1 người nhận (recipientIds, tối thiểu 1 phần tử)
         — DB có trigger deferred chặn lưu sự kiện không có người nhận. Tạo event
         và event_recipients trong cùng 1 transaction. Ngày không hợp lệ
-        (vd. ngày 31 tháng 2, end_date trước start_date) trả 400.
+        (vd. ngày 31 tháng 2, endDate trước startDate) trả 400.
       requestBody:
         required: true
         content:
@@ -773,8 +769,8 @@ paths:
       description: >
         UC-07. Trả các lần diễn ra (occurrence) trong khoảng from–to
         (mặc định tháng hiện tại theo Asia/Ho_Chi_Minh). Mỗi item gồm
-        occurrence_id, event_id, event_title (lấy từ events.title qua join),
-        local_date và status.
+        occurrenceId, eventId, eventTitle (lấy từ events.title qua join),
+        localDate và status.
       parameters:
         - name: from
           in: query
@@ -806,7 +802,7 @@ paths:
       summary: Sự kiện sắp tới
       description: >
         UC-07. Danh sách các lần diễn ra sắp tới theo thứ tự thời gian
-        (local_date tăng dần). Mặc định 30 ngày tới; truyền days để đổi
+        (localDate tăng dần). Mặc định 30 ngày tới; truyền days để đổi
         (tối đa 365). Không có sự kiện nào trả danh sách rỗng.
       parameters:
         - name: days
@@ -831,7 +827,7 @@ paths:
       tags: [Sự kiện]
       operationId: listEventRecipients
       summary: Liệt kê người nhận của sự kiện
-      description: UC-06. Trả danh sách người nhận kèm cờ is_primary.
+      description: UC-06. Trả danh sách người nhận kèm cờ isPrimary.
       parameters:
         - $ref: '#/components/parameters/IdParam'
       responses:
@@ -853,7 +849,7 @@ paths:
       summary: Thêm người nhận vào sự kiện
       description: >
         UC-06. Người nhận phải thuộc về user. Thêm trùng trả 409
-        (khóa chính event_recipients là cặp event_id + recipient_id).
+        (khóa chính event_recipients là cặp eventId + recipientId).
       parameters:
         - $ref: '#/components/parameters/IdParam'
       requestBody:
@@ -890,8 +886,7 @@ paths:
           in: query
           required: true
           schema:
-            type: integer
-            format: int64
+            $ref: '#/components/schemas/ServerId'
       responses:
         '204':
           description: Đã gỡ
@@ -907,8 +902,8 @@ paths:
       operationId: listOccurrences
       summary: Liệt kê các lần diễn ra của sự kiện
       description: >
-        UC-07. Các lần diễn ra (hằng năm theo recurrence_frequency) của 1 sự kiện,
-        sắp xếp theo local_date. Lọc theo status nếu cần.
+        UC-07. Các lần diễn ra (hằng năm theo recurrenceFrequency) của 1 sự kiện,
+        sắp xếp theo localDate. Lọc theo status nếu cần.
       parameters:
         - $ref: '#/components/parameters/IdParam'
         - $ref: '#/components/parameters/PageParam'
@@ -1020,7 +1015,7 @@ paths:
       tags: [Nhắc nhở]
       operationId: listReminderRules
       summary: Liệt kê quy tắc nhắc của sự kiện
-      description: UC-08. Các mốc báo trước (days_before) đã cấu hình cho sự kiện này.
+      description: UC-08. Các mốc báo trước (daysBefore) đã cấu hình cho sự kiện này.
       parameters:
         - $ref: '#/components/parameters/IdParam'
       responses:
@@ -1041,8 +1036,8 @@ paths:
       operationId: createReminderRule
       summary: Thêm quy tắc nhắc cho sự kiện
       description: >
-        UC-08. days_before chỉ nhận 14, 7, 3, 1, 0 (theo CHECK của DB).
-        Trùng mốc của cùng sự kiện trả 409 (UNIQUE event_id + days_before).
+        UC-08. daysBefore chỉ nhận 14, 7, 3, 1, 0 (theo CHECK của DB).
+        Trùng mốc của cùng sự kiện trả 409 (UNIQUE eventId + daysBefore).
       parameters:
         - $ref: '#/components/parameters/IdParam'
       requestBody:
@@ -1077,8 +1072,7 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            $ref: '#/components/schemas/ServerId'
       responses:
         '200':
           description: Quy tắc nhắc
@@ -1095,7 +1089,7 @@ paths:
       operationId: updateReminderRule
       summary: Sửa quy tắc nhắc
       description: >
-        UC-08. Sửa được days_before, reminder_time và enabled. Đổi sang mốc
+        UC-08. Sửa được daysBefore, reminderTime và enabled. Đổi sang mốc
         đã tồn tại của cùng sự kiện trả 409.
       parameters:
         - $ref: '#/components/parameters/IdParam'
@@ -1103,8 +1097,7 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            $ref: '#/components/schemas/ServerId'
       requestBody:
         required: true
         content:
@@ -1137,8 +1130,7 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            $ref: '#/components/schemas/ServerId'
       responses:
         '204':
           description: Đã xóa
@@ -1152,7 +1144,7 @@ paths:
       operationId: listNotifications
       summary: Liệt kê thông báo nhắc của mình
       description: >
-        UC-08. Lọc theo status và type. Sắp xếp theo scheduled_at.
+        UC-08. Lọc theo status và type. Sắp xếp theo scheduledAt.
         Guest chỉ nhận nhắc cục bộ trên máy nên không dùng endpoint này.
       parameters:
         - $ref: '#/components/parameters/PageParam'
@@ -1184,8 +1176,8 @@ paths:
       operationId: updateNotification
       summary: Đánh dấu đã đọc / hoãn nhắc
       description: >
-        UC-08. read=true đặt read_at; snooze=true chuyển status sang SNOOZED
-        và tăng snooze_count. Chỉ sửa được thông báo của chính mình.
+        UC-08. read=true đặt readAt; snooze=true chuyển status sang SNOOZED
+        và tăng snoozeCount. Chỉ sửa được thông báo của chính mình.
       parameters:
         - $ref: '#/components/parameters/IdParam'
       requestBody:
@@ -1230,8 +1222,8 @@ paths:
       operationId: createDevice
       summary: Đăng ký thiết bị nhận push
       description: >
-        UC-08. Đăng ký installation_id + push_token để nhận thông báo đẩy.
-        Trùng (user_id, installation_id) trả 409.
+        UC-08. Đăng ký installationId + pushToken để nhận thông báo đẩy.
+        Trùng (user_id, installationId) trả 409.
       requestBody:
         required: true
         content:
@@ -1274,8 +1266,8 @@ paths:
       operationId: updateDevice
       summary: Cập nhật thiết bị
       description: >
-        UC-08. Cập nhật push_token (khi token FCM/APNs đổi) hoặc
-        notification_permission (khi user bật/tắt quyền trong cài đặt máy).
+        UC-08. Cập nhật pushToken (khi token FCM/APNs đổi) hoặc
+        notificationPermission (khi user bật/tắt quyền trong cài đặt máy).
       parameters:
         - $ref: '#/components/parameters/IdParam'
       requestBody:
@@ -1317,17 +1309,17 @@ paths:
       operationId: listBudgets
       summary: Liệt kê ngân sách của mình
       description: >
-        UC-09. Lọc theo scope_type (ANNUAL/EVENT) và scope_year.
+        UC-09. Lọc theo scopeType (ANNUAL/EVENT) và scopeYear.
       parameters:
         - $ref: '#/components/parameters/PageParam'
         - $ref: '#/components/parameters/SizeParam'
-        - name: scope_type
+        - name: scopeType
           in: query
           required: false
           schema:
             type: string
             enum: [ANNUAL, EVENT]
-        - name: scope_year
+        - name: scopeYear
           in: query
           required: false
           schema:
@@ -1346,8 +1338,8 @@ paths:
       operationId: createBudget
       summary: Lập ngân sách mới
       description: >
-        UC-09. scope ANNUAL cần scope_year (mỗi năm chỉ 1 ngân sách,
-        trùng trả 409); scope EVENT cần occurrence_id (mỗi lần diễn ra chỉ 1
+        UC-09. scope ANNUAL cần scopeYear (mỗi năm chỉ 1 ngân sách,
+        trùng trả 409); scope EVENT cần occurrenceId (mỗi lần diễn ra chỉ 1
         ngân sách, trùng trả 409). amount phải > 0, âm hoặc không phải số trả 400.
       requestBody:
         required: true
@@ -1390,7 +1382,7 @@ paths:
       tags: [Ngân sách]
       operationId: updateBudget
       summary: Sửa ngân sách
-      description: UC-09. Sửa được amount và alert_threshold_percent (1–100).
+      description: UC-09. Sửa được amount và alertThresholdPercent (1–100).
       parameters:
         - $ref: '#/components/parameters/IdParam'
       requestBody:
@@ -1434,22 +1426,21 @@ paths:
       description: >
         UC-10. Đối soát tổng chi thực tế (SUM expenses qua view
         v_actual_spend_by_occurrence) với hạn mức từng ngân sách; trả phần trăm
-        đã dùng và cờ cảnh báo theo alert_threshold_percent của từng budget
+        đã dùng và cờ cảnh báo theo alertThresholdPercent của từng budget
         (mặc định 80; ngưỡng 90%/100% trong UC-10 chỉ là ví dụ — D10).
         Chưa lập ngân sách thì trả tổng chi chưa kèm phần trăm giới hạn.
       parameters:
-        - name: scope_year
+        - name: scopeYear
           in: query
           required: false
           schema:
             type: integer
             description: Lọc tổng hợp theo năm (mặc định năm hiện tại VN)
-        - name: occurrence_id
+        - name: occurrenceId
           in: query
           required: false
           schema:
-            type: integer
-            format: int64
+            $ref: '#/components/schemas/ServerId'
             description: Lọc tổng hợp theo 1 lần diễn ra
       responses:
         '200':
@@ -1466,23 +1457,21 @@ paths:
       operationId: listGifts
       summary: Liệt kê quà của mình
       description: >
-        UC-11. Lọc theo recipient_id, occurrence_id, status và source
+        UC-11. Lọc theo recipientId, occurrenceId, status và source
         (MANUAL/AI). Sắp xếp theo ngày tạo mới nhất.
       parameters:
         - $ref: '#/components/parameters/PageParam'
         - $ref: '#/components/parameters/SizeParam'
-        - name: recipient_id
+        - name: recipientId
           in: query
           required: false
           schema:
-            type: integer
-            format: int64
-        - name: occurrence_id
+            $ref: '#/components/schemas/ServerId'
+        - name: occurrenceId
           in: query
           required: false
           schema:
-            type: integer
-            format: int64
+            $ref: '#/components/schemas/ServerId'
         - name: status
           in: query
           required: false
@@ -1509,7 +1498,7 @@ paths:
       operationId: createGift
       summary: Thêm ý tưởng quà
       description: >
-        UC-11. Tên và recipient_id bắt buộc. product_url phải đúng định dạng URL
+        UC-11. Tên và recipientId bắt buộc. productUrl phải đúng định dạng URL
         (sai trả 400). Trạng thái ban đầu IDEA. Gói Free giới hạn 200 ý tưởng
         đang hoạt động (plan_limits FREE.active_gift_ideas); vượt giới hạn trả 403.
       requestBody:
@@ -1537,7 +1526,7 @@ paths:
       operationId: getGift
       summary: Lấy 1 món quà
       description: >
-        UC-11. Kèm actual_spend (chi thực tế = SUM expenses qua view
+        UC-11. Kèm actualSpend (chi thực tế = SUM expenses qua view
         v_gift_actual_spend; không lưu cột actual_amount ở gifts).
       parameters:
         - $ref: '#/components/parameters/IdParam'
@@ -1603,8 +1592,8 @@ paths:
         UC-12. Vòng đời duy nhất: IDEA → CONSIDERING → SELECTED → PURCHASED →
         GIVEN (+ RETURNED/CANCELLED). Chuyển sai bị chặn 409 (trigger DB
         trg_gift_status_transition là lưới cuối, app cũng phải chặn ở UI).
-        Chuyển sang PURCHASED bắt buộc có purchased_on; chuyển sang GIVEN
-        nên có given_on. Hợp lệ: IDEA→CONSIDERING/SELECTED/CANCELLED,
+        Chuyển sang PURCHASED bắt buộc có purchasedOn; chuyển sang GIVEN
+        nên có givenOn. Hợp lệ: IDEA→CONSIDERING/SELECTED/CANCELLED,
         CONSIDERING→IDEA/SELECTED/CANCELLED, SELECTED→CONSIDERING/PURCHASED/CANCELLED,
         PURCHASED→GIVEN/RETURNED/CANCELLED, GIVEN→RETURNED.
       parameters:
@@ -1641,12 +1630,11 @@ paths:
         trước đây kèm ngày tặng để user chọn tiếp tục lưu hay hủy.
         Không trùng trả matches rỗng.
       parameters:
-        - name: recipient_id
+        - name: recipientId
           in: query
           required: true
           schema:
-            type: integer
-            format: int64
+            $ref: '#/components/schemas/ServerId'
         - name: name
           in: query
           required: true
@@ -1694,9 +1682,9 @@ paths:
       operationId: createExpense
       summary: Ghi nhận chi phí cho món quà
       description: >
-        UC-12. Ghi giá thực tế (amount >= 0, occurred_at bắt buộc). Khoản chi
+        UC-12. Ghi giá thực tế (amount >= 0, occurredAt bắt buộc). Khoản chi
         được cộng dồn vào tổng chi thực tế của ngân sách (UC-10) qua view,
-        chỉ khi is_counted_in_actual_spend=true.
+        chỉ khi isCountedInActualSpend=true.
       parameters:
         - $ref: '#/components/parameters/IdParam'
       requestBody:
@@ -1729,8 +1717,7 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            $ref: '#/components/schemas/ServerId'
       responses:
         '200':
           description: Khoản chi
@@ -1746,15 +1733,14 @@ paths:
       tags: [Quà và chi]
       operationId: updateExpense
       summary: Sửa khoản chi
-      description: UC-12. Sửa được amount, occurred_at, description và cờ tính vào chi thực tế.
+      description: UC-12. Sửa được amount, occurredAt, description và cờ tính vào chi thực tế.
       parameters:
         - $ref: '#/components/parameters/IdParam'
         - name: expenseId
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            $ref: '#/components/schemas/ServerId'
       requestBody:
         required: true
         content:
@@ -1785,8 +1771,7 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-            format: int64
+            $ref: '#/components/schemas/ServerId'
       responses:
         '204':
           description: Đã xóa
@@ -1903,7 +1888,7 @@ paths:
       description: >
         UC-15. CHƯA TRIỂN KHAI ở v1 (Q3) — luôn trả 501 cho tới khi backend
         AI được làm. Sau này: chuyển 1 gợi ý AI thành món quà (source=AI,
-        status=IDEA, suggestion_id trỏ về gợi ý). Gợi ý đã lưu rồi trả 409.
+        status=IDEA, suggestionId trỏ về gợi ý). Gợi ý đã lưu rồi trả 409.
       x-giftmate-implementation: planned
       parameters:
         - $ref: '#/components/parameters/IdParam'
@@ -2058,7 +2043,7 @@ paths:
       summary: Liệt kê tài khoản người dùng
       description: >
         UC-16. Chỉ role ADMIN. Danh sách tài khoản để Admin chọn khi cấp
-        trial Premium hoặc đổi gói. Lọc theo plan_type, role, status và
+        trial Premium hoặc đổi gói. Lọc theo planType, role, status và
         tìm theo email.
       parameters:
         - $ref: '#/components/parameters/PageParam'
@@ -2069,7 +2054,7 @@ paths:
           schema:
             type: string
             description: Tìm theo email hoặc tên hiển thị
-        - name: plan_type
+        - name: planType
           in: query
           required: false
           schema:
@@ -2104,7 +2089,7 @@ paths:
       operationId: grantTrialPremium
       summary: Cấp Premium thử nghiệm cho 1 tài khoản
       description: >
-        UC-16, Q5 (CHỜ NHÓM). Chỉ role ADMIN. v1 chỉ set plan_type=PREMIUM,
+        UC-16, Q5 (CHỜ NHÓM). Chỉ role ADMIN. v1 chỉ set planType=PREMIUM,
         chưa có premium_until vì Q5 chưa chốt — endpoint này KHÔNG có body.
         Khi nhóm chốt ngày hết hạn, v1.1 sẽ thêm trường premium_until
         (migration riêng) và body nhận expires_at.
@@ -2188,8 +2173,7 @@ components:
       in: path
       required: true
       schema:
-        type: integer
-        format: int64
+        $ref: '#/components/schemas/ServerId'
       description: ID BIGINT của bản ghi
   responses:
     BadRequest:
@@ -2235,6 +2219,10 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
   schemas:
+    ServerId:
+      type: string
+      pattern: '^[1-9][0-9]*$'
+      example: '42'
     Error:
       type: object
       required: [code, message]
@@ -2261,7 +2249,7 @@ components:
                 example: Không được để trống
     RegisterRequest:
       type: object
-      required: [email, password, display_name]
+      required: [email, password, displayName]
       properties:
         email:
           type: string
@@ -2274,7 +2262,7 @@ components:
           minLength: 8
           maxLength: 255
           description: Mật khẩu tối thiểu 8 ký tự
-        display_name:
+        displayName:
           type: string
           maxLength: 100
           example: Khánh
@@ -2291,92 +2279,178 @@ components:
           format: password
     OAuthRequest:
       type: object
-      required: [id_token]
+      required: [idToken]
       properties:
-        id_token:
+        idToken:
           type: string
           description: ID token do Google hoặc Apple cấp sau khi user đăng nhập trên app
     RefreshTokenRequest:
       type: object
-      required: [refresh_token]
+      required: [refreshToken]
       properties:
-        refresh_token:
+        refreshToken:
           type: string
           description: Refresh token nhận được lúc đăng nhập (server chỉ lưu hash SHA-256)
     AuthResponse:
       type: object
-      required: [access_token, refresh_token, token_type, expires_in, user]
+      required: [accessToken, refreshToken, tokenType, expiresIn, user]
       properties:
-        access_token:
+        accessToken:
           type: string
           description: JWT access token, TTL 1h
-        refresh_token:
+        refreshToken:
           type: string
           description: Refresh token, hết hạn sau 30 ngày; xoay vòng mỗi lần refresh
-        token_type:
+        tokenType:
           type: string
           example: Bearer
-        expires_in:
+        expiresIn:
           type: integer
           description: TTL của access token tính bằng giây
           example: 3600
         user:
           $ref: '#/components/schemas/UserProfile'
+    LocalId:
+      type: string
+      format: uuid
+    GuestRecipient:
+      allOf:
+        - $ref: '#/components/schemas/RecipientCreate'
+        - type: object
+          required: [localId]
+          properties:
+            localId: {$ref: '#/components/schemas/LocalId'}
+    GuestEvent:
+      type: object
+      required: [localId, title, eventType, originalDay, originalMonth, recipientLocalIds]
+      properties:
+        localId: {$ref: '#/components/schemas/LocalId'}
+        title:
+          type: string
+          maxLength: 150
+        eventType:
+          type: string
+          enum: [BIRTHDAY, ANNIVERSARY, WEDDING, GRADUATION, HOLIDAY, CUSTOM]
+        occasionType:
+          type: string
+          enum: [BIRTHDAY, ANNIVERSARY, HOLIDAY, OTHER]
+        calendarType:
+          type: string
+          enum: [SOLAR, LUNAR]
+          default: SOLAR
+        originalDay:
+          type: integer
+          minimum: 1
+          maximum: 31
+        originalMonth:
+          type: integer
+          minimum: 1
+          maximum: 12
+        originalYear:
+          type: integer
+        isYearKnown:
+          type: boolean
+        isLunarLeapMonth:
+          type: boolean
+        recurrenceFrequency:
+          type: string
+          enum: [NONE, ANNUAL]
+          default: ANNUAL
+        leapDayPolicy:
+          type: string
+          enum: [FEB28, MAR01, SKIP]
+        timezone:
+          type: string
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        defaultBudget:
+          type: number
+        notes:
+          type: string
+          maxLength: 500
+        recipientLocalIds:
+          type: array
+          minItems: 1
+          description: >
+            Mảng đầu vào (suy ra, không phải cột DB) — map sang bảng nối
+            event_recipients. Bắt buộc ít nhất 1 người nhận (trigger DB chặn
+            lưu sự kiện không có người nhận).
+          items:
+            $ref: '#/components/schemas/LocalId'
+    GuestGift:
+      type: object
+      required: [localId, name, recipientLocalId]
+      properties:
+        localId: {$ref: '#/components/schemas/LocalId'}
+        name:
+          type: string
+          maxLength: 200
+        recipientLocalId:
+          $ref: '#/components/schemas/LocalId'
+        occurrenceId:
+          $ref: '#/components/schemas/ServerId'
+        suggestionId:
+          $ref: '#/components/schemas/ServerId'
+        category:
+          type: string
+          maxLength: 80
+        estimatedAmount:
+          type: number
+        productUrl:
+          type: string
+          format: uri
+        imageUrl:
+          type: string
+        note:
+          type: string
     SyncRequest:
       type: object
-      description: >
-        Dữ liệu cục bộ của Guest gửi lên để gộp vào tài khoản (UC-01, D6).
-        Mỗi mảng dùng đúng schema Create của tài nguyên tương ứng.
       properties:
         recipients:
           type: array
-          items:
-            $ref: '#/components/schemas/RecipientCreate'
+          items: {$ref: '#/components/schemas/GuestRecipient'}
         events:
           type: array
-          items:
-            $ref: '#/components/schemas/EventCreate'
+          items: {$ref: '#/components/schemas/GuestEvent'}
         gifts:
           type: array
-          items:
-            $ref: '#/components/schemas/GiftCreate'
+          items: {$ref: '#/components/schemas/GuestGift'}
     SyncResponse:
       type: object
-      required: [recipients_created, events_created, gifts_created, skipped]
+      required: [mappings]
       properties:
-        recipients_created:
-          type: integer
-          example: 3
-        events_created:
-          type: integer
-          example: 2
-        gifts_created:
-          type: integer
-          example: 5
-        skipped:
-          type: integer
-          description: Số bản ghi bỏ qua vì đã tồn tại
-          example: 1
+        mappings:
+          type: array
+          items:
+            type: object
+            required: [entityType, localId, serverId]
+            properties:
+              entityType: {type: string, enum: [recipient, event, gift]}
+              localId: {$ref: '#/components/schemas/LocalId'}
+              serverId: {$ref: '#/components/schemas/ServerId'}
     UserProfile:
       type: object
       description: >
         Hồ sơ gộp users + user_settings cho GET /users/me. Trường user là
         object lồng (suy ra, không phải cột DB).
-      required: [id, email, display_name, role, status, plan_type]
+      required: [id, email, displayName, role, status, planType]
       properties:
         id:
-          type: integer
-          format: int64
+          $ref: '#/components/schemas/ServerId'
         email:
           type: [string, "null"]
           format: email
           description: NULL với tài khoản chỉ đăng nhập OAuth chưa nhập email
-        auth_provider:
+        authProvider:
           type: [string, "null"]
-          enum: [EMAIL, GOOGLE, APPLE]
+          enum: [EMAIL, GOOGLE, APPLE, null]
           description: >
-            Cách đăng nhập (bảng users.auth_provider, Q2: không có FACEBOOK)
-        display_name:
+            Cách đăng nhập (bảng users.authProvider, Q2: không có FACEBOOK)
+        displayName:
           type: string
           maxLength: 100
         role:
@@ -2385,7 +2459,7 @@ components:
         status:
           type: string
           enum: [ACTIVE, DISABLED, DELETED]
-        plan_type:
+        planType:
           type: string
           enum: [FREE, PREMIUM]
         timezone:
@@ -2397,23 +2471,23 @@ components:
         currency:
           type: string
           example: VND
-        created_at:
+        createdAt:
           type: string
           format: date-time
     UserUpdate:
       type: object
       properties:
-        display_name:
+        displayName:
           type: string
           maxLength: 100
     ChangePasswordRequest:
       type: object
-      required: [current_password, new_password]
+      required: [currentPassword, newPassword]
       properties:
-        current_password:
+        currentPassword:
           type: string
           format: password
-        new_password:
+        newPassword:
           type: string
           format: password
           minLength: 8
@@ -2428,9 +2502,9 @@ components:
     UserSettings:
       type: object
       description: Map 1-1 bảng user_settings
-      required: [display_name, timezone, locale, currency, default_reminder_time, default_reminder_offsets, notifications_enabled, hide_gift_on_lockscreen, ai_enabled, plan_type]
+      required: [displayName, timezone, locale, currency, defaultReminderTime, defaultReminderOffsets, notificationsEnabled, hideGiftOnLockscreen, aiEnabled, planType]
       properties:
-        display_name:
+        displayName:
           type: string
           maxLength: 100
         timezone:
@@ -2447,29 +2521,29 @@ components:
           maxLength: 3
           default: VND
           example: VND
-        default_reminder_time:
+        defaultReminderTime:
           type: string
           pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
           default: '09:00'
           description: Giờ nhắc mặc định, định dạng HH:mm
           example: '09:00'
-        default_reminder_offsets:
+        defaultReminderOffsets:
           type: array
           description: Các mốc nhắc mặc định (số ngày trước sự kiện)
           default: [14, 7, 3, 1, 0]
           items:
             type: integer
             enum: [14, 7, 3, 1, 0]
-        notifications_enabled:
+        notificationsEnabled:
           type: boolean
           default: true
-        hide_gift_on_lockscreen:
+        hideGiftOnLockscreen:
           type: boolean
           default: true
-        ai_enabled:
+        aiEnabled:
           type: boolean
           default: true
-        plan_type:
+        planType:
           type: string
           enum: [FREE, PREMIUM]
     UserSettingsUpdate:
@@ -2483,19 +2557,19 @@ components:
           type: string
           minLength: 3
           maxLength: 3
-        default_reminder_time:
+        defaultReminderTime:
           type: string
           pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
-        default_reminder_offsets:
+        defaultReminderOffsets:
           type: array
           items:
             type: integer
             enum: [14, 7, 3, 1, 0]
-        notifications_enabled:
+        notificationsEnabled:
           type: boolean
-        hide_gift_on_lockscreen:
+        hideGiftOnLockscreen:
           type: boolean
-        ai_enabled:
+        aiEnabled:
           type: boolean
     ExportData:
       type: object
@@ -2521,21 +2595,21 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Budget'
-        exported_at:
+        exportedAt:
           type: string
           format: date-time
     PlanLimit:
       type: object
       description: Map 1-1 bảng plan_limits
-      required: [plan_type, limit_key, limit_value]
+      required: [planType, limitKey, limitValue]
       properties:
-        plan_type:
+        planType:
           type: string
           enum: [FREE, PREMIUM]
-        limit_key:
+        limitKey:
           type: string
           enum: [recipient_limit, ai_requests_per_day, active_gift_ideas]
-        limit_value:
+        limitValue:
           type: [integer, "null"]
           description: NULL = chưa điền, server chặn fail-closed, không coi là không giới hạn
           example: 20
@@ -2544,9 +2618,9 @@ components:
           example: nguoi
     PlanLimitsUpdate:
       type: object
-      required: [plan_type, limits]
+      required: [planType, limits]
       properties:
-        plan_type:
+        planType:
           type: string
           enum: [FREE, PREMIUM]
         limits:
@@ -2554,34 +2628,33 @@ components:
           minItems: 1
           items:
             type: object
-            required: [limit_key, limit_value]
+            required: [limitKey, limitValue]
             properties:
-              limit_key:
+              limitKey:
                 type: string
                 enum: [recipient_limit, ai_requests_per_day, active_gift_ideas]
-              limit_value:
+              limitValue:
                 type: [integer, "null"]
                 minimum: 0
                 description: Đặt NULL để đánh dấu chưa điền (fail-closed)
     PlanUpdate:
       type: object
-      required: [plan_type]
+      required: [planType]
       properties:
-        plan_type:
+        planType:
           type: string
           enum: [FREE, PREMIUM]
     AdminUser:
       type: object
       description: Tài khoản user nhìn từ phía Admin (UC-16)
-      required: [id, email, display_name, role, status, plan_type]
+      required: [id, email, displayName, role, status, planType]
       properties:
         id:
-          type: integer
-          format: int64
+          $ref: '#/components/schemas/ServerId'
         email:
           type: [string, "null"]
           format: email
-        display_name:
+        displayName:
           type: string
         role:
           type: string
@@ -2589,10 +2662,10 @@ components:
         status:
           type: string
           enum: [ACTIVE, DISABLED, DELETED]
-        plan_type:
+        planType:
           type: string
           enum: [FREE, PREMIUM]
-        created_at:
+        createdAt:
           type: string
           format: date-time
     AdminUserPage:
@@ -2614,55 +2687,56 @@ components:
           example: 1
     Recipient:
       type: object
+      example: {id: '42', name: Lan, relationship: PARTNER, isFavourite: false}
       description: Map 1-1 bảng recipients
-      required: [id, name, is_favourite]
+      required: [id, name, isFavourite]
       properties:
         id:
-          type: integer
-          format: int64
+          $ref: '#/components/schemas/ServerId'
         name:
           type: string
           maxLength: 150
         relationship:
           type: [string, "null"]
-          enum: [FAMILY, FRIEND, PARTNER, COLLEAGUE, TEACHER, OTHER]
-        relationship_detail:
+          enum: [FAMILY, FRIEND, PARTNER, COLLEAGUE, TEACHER, OTHER, null]
+        relationshipDetail:
           type: [string, "null"]
           maxLength: 100
           description: Ghi chú thêm về mối quan hệ, vd "Bạn đại học"
-        age_group:
+        ageGroup:
           type: [string, "null"]
-          enum: [CHILD, TEEN, ADULT, SENIOR, UNKNOWN]
-        birth_day:
+          enum: [CHILD, TEEN, ADULT, SENIOR, UNKNOWN, null]
+        birthDay:
           type: [integer, "null"]
           minimum: 1
           maximum: 31
-          description: Đi cùng birth_month (cả hai có hoặc cả hai không)
-        birth_month:
+          description: Đi cùng birthMonth (cả hai có hoặc cả hai không)
+        birthMonth:
           type: [integer, "null"]
           minimum: 1
           maximum: 12
-        birth_year:
+        birthYear:
           type: [integer, "null"]
         notes:
           type: [string, "null"]
           maxLength: 500
-        is_favourite:
+        isFavourite:
           type: boolean
           default: false
         version:
           type: integer
           description: Optimistic locking (cột version của bảng)
           example: 1
-        created_at:
+        createdAt:
           type: string
           format: date-time
-        updated_at:
+        updatedAt:
           type: string
           format: date-time
     RecipientCreate:
       type: object
-      required: [name]
+      example: {name: Lan, relationship: PARTNER}
+      required: [name, relationship]
       properties:
         name:
           type: string
@@ -2670,26 +2744,26 @@ components:
         relationship:
           type: string
           enum: [FAMILY, FRIEND, PARTNER, COLLEAGUE, TEACHER, OTHER]
-        relationship_detail:
+        relationshipDetail:
           type: string
           maxLength: 100
-        age_group:
+        ageGroup:
           type: string
           enum: [CHILD, TEEN, ADULT, SENIOR, UNKNOWN]
-        birth_day:
+        birthDay:
           type: integer
           minimum: 1
           maximum: 31
-        birth_month:
+        birthMonth:
           type: integer
           minimum: 1
           maximum: 12
-        birth_year:
+        birthYear:
           type: integer
         notes:
           type: string
           maxLength: 500
-        is_favourite:
+        isFavourite:
           type: boolean
     RecipientUpdate:
       type: object
@@ -2700,26 +2774,26 @@ components:
         relationship:
           type: string
           enum: [FAMILY, FRIEND, PARTNER, COLLEAGUE, TEACHER, OTHER]
-        relationship_detail:
+        relationshipDetail:
           type: string
           maxLength: 100
-        age_group:
+        ageGroup:
           type: string
           enum: [CHILD, TEEN, ADULT, SENIOR, UNKNOWN]
-        birth_day:
+        birthDay:
           type: integer
           minimum: 1
           maximum: 31
-        birth_month:
+        birthMonth:
           type: integer
           minimum: 1
           maximum: 12
-        birth_year:
+        birthYear:
           type: integer
         notes:
           type: string
           maxLength: 500
-        is_favourite:
+        isFavourite:
           type: boolean
     RecipientPage:
       type: object
@@ -2741,14 +2815,12 @@ components:
     RecipientPreference:
       type: object
       description: Map 1-1 bảng recipient_preferences
-      required: [id, recipient_id, category, value, polarity, source, is_active]
+      required: [id, recipientId, category, value, polarity, source, isActive]
       properties:
         id:
-          type: integer
-          format: int64
-        recipient_id:
-          type: integer
-          format: int64
+          $ref: '#/components/schemas/ServerId'
+        recipientId:
+          $ref: '#/components/schemas/ServerId'
         category:
           type: string
           maxLength: 80
@@ -2763,17 +2835,17 @@ components:
         source:
           type: string
           enum: [USER, AI_INFERRED]
-        confirmed_at:
+        confirmedAt:
           type: [string, "null"]
           format: date-time
           description: Thời điểm user xác nhận sở thích do AI suy ra
-        is_active:
+        isActive:
           type: boolean
           default: true
-        created_at:
+        createdAt:
           type: string
           format: date-time
-        updated_at:
+        updatedAt:
           type: string
           format: date-time
     RecipientPreferenceCreate:
@@ -2802,9 +2874,9 @@ components:
         polarity:
           type: string
           enum: [LIKE, DISLIKE, AVOID]
-        is_active:
+        isActive:
           type: boolean
-        confirmed_at:
+        confirmedAt:
           type: string
           format: date-time
     RecipientPreferencePage:
@@ -2827,58 +2899,57 @@ components:
     Event:
       type: object
       description: Map 1-1 bảng events
-      required: [id, title, event_type, calendar_type, original_day, original_month, recurrence_frequency]
+      required: [id, title, eventType, calendarType, originalDay, originalMonth, recurrenceFrequency]
       properties:
         id:
-          type: integer
-          format: int64
+          $ref: '#/components/schemas/ServerId'
         title:
           type: string
           maxLength: 150
-        event_type:
+        eventType:
           type: string
           enum: [BIRTHDAY, ANNIVERSARY, WEDDING, GRADUATION, HOLIDAY, CUSTOM]
-        occasion_type:
+        occasionType:
           type: [string, "null"]
-          enum: [BIRTHDAY, ANNIVERSARY, HOLIDAY, OTHER]
-        calendar_type:
+          enum: [BIRTHDAY, ANNIVERSARY, HOLIDAY, OTHER, null]
+        calendarType:
           type: string
           enum: [SOLAR, LUNAR]
           default: SOLAR
-        original_day:
+        originalDay:
           type: integer
           minimum: 1
           maximum: 31
-        original_month:
+        originalMonth:
           type: integer
           minimum: 1
           maximum: 12
-        original_year:
+        originalYear:
           type: [integer, "null"]
-        is_year_known:
+        isYearKnown:
           type: boolean
           default: true
-        is_lunar_leap_month:
+        isLunarLeapMonth:
           type: boolean
           default: false
-        recurrence_frequency:
+        recurrenceFrequency:
           type: string
           enum: [NONE, ANNUAL]
           default: ANNUAL
-        leap_day_policy:
+        leapDayPolicy:
           type: [string, "null"]
-          enum: [FEB28, MAR01, SKIP]
+          enum: [FEB28, MAR01, SKIP, null]
           description: Cách xử lý ngày 29/2 vào năm không nhuận
         timezone:
           type: string
           default: Asia/Ho_Chi_Minh
-        start_date:
+        startDate:
           type: [string, "null"]
           format: date
-        end_date:
+        endDate:
           type: [string, "null"]
           format: date
-        default_budget:
+        defaultBudget:
           type: [number, "null"]
           description: Ngân sách mặc định cho dịp này, VND NUMERIC(18,2)
         notes:
@@ -2887,64 +2958,64 @@ components:
         version:
           type: integer
           example: 1
-        created_at:
+        createdAt:
           type: string
           format: date-time
-        updated_at:
+        updatedAt:
           type: string
           format: date-time
     EventCreate:
       type: object
-      required: [title, event_type, original_day, original_month, recipient_ids]
+      required: [title, eventType, originalDay, originalMonth, recipientIds]
       properties:
         title:
           type: string
           maxLength: 150
-        event_type:
+        eventType:
           type: string
           enum: [BIRTHDAY, ANNIVERSARY, WEDDING, GRADUATION, HOLIDAY, CUSTOM]
-        occasion_type:
+        occasionType:
           type: string
           enum: [BIRTHDAY, ANNIVERSARY, HOLIDAY, OTHER]
-        calendar_type:
+        calendarType:
           type: string
           enum: [SOLAR, LUNAR]
           default: SOLAR
-        original_day:
+        originalDay:
           type: integer
           minimum: 1
           maximum: 31
-        original_month:
+        originalMonth:
           type: integer
           minimum: 1
           maximum: 12
-        original_year:
+        originalYear:
           type: integer
-        is_year_known:
+        isYearKnown:
           type: boolean
-        is_lunar_leap_month:
+        isLunarLeapMonth:
           type: boolean
-        recurrence_frequency:
+        recurrenceFrequency:
           type: string
           enum: [NONE, ANNUAL]
           default: ANNUAL
-        leap_day_policy:
+        leapDayPolicy:
           type: string
           enum: [FEB28, MAR01, SKIP]
         timezone:
           type: string
-        start_date:
+        startDate:
           type: string
           format: date
-        end_date:
+        endDate:
           type: string
           format: date
-        default_budget:
+        defaultBudget:
           type: number
         notes:
           type: string
           maxLength: 500
-        recipient_ids:
+        recipientIds:
           type: array
           minItems: 1
           description: >
@@ -2952,52 +3023,51 @@ components:
             event_recipients. Bắt buộc ít nhất 1 người nhận (trigger DB chặn
             lưu sự kiện không có người nhận).
           items:
-            type: integer
-            format: int64
+            $ref: '#/components/schemas/ServerId'
     EventUpdate:
       type: object
       properties:
         title:
           type: string
           maxLength: 150
-        event_type:
+        eventType:
           type: string
           enum: [BIRTHDAY, ANNIVERSARY, WEDDING, GRADUATION, HOLIDAY, CUSTOM]
-        occasion_type:
+        occasionType:
           type: string
           enum: [BIRTHDAY, ANNIVERSARY, HOLIDAY, OTHER]
-        calendar_type:
+        calendarType:
           type: string
           enum: [SOLAR, LUNAR]
-        original_day:
+        originalDay:
           type: integer
           minimum: 1
           maximum: 31
-        original_month:
+        originalMonth:
           type: integer
           minimum: 1
           maximum: 12
-        original_year:
+        originalYear:
           type: integer
-        is_year_known:
+        isYearKnown:
           type: boolean
-        is_lunar_leap_month:
+        isLunarLeapMonth:
           type: boolean
-        recurrence_frequency:
+        recurrenceFrequency:
           type: string
           enum: [NONE, ANNUAL]
-        leap_day_policy:
+        leapDayPolicy:
           type: string
           enum: [FEB28, MAR01, SKIP]
         timezone:
           type: string
-        start_date:
+        startDate:
           type: string
           format: date
-        end_date:
+        endDate:
           type: string
           format: date
-        default_budget:
+        defaultBudget:
           type: number
         notes:
           type: string
@@ -3022,60 +3092,53 @@ components:
     EventRecipient:
       type: object
       description: Map 1-1 bảng nối event_recipients
-      required: [event_id, recipient_id, is_primary]
+      required: [eventId, recipientId, isPrimary]
       properties:
-        event_id:
-          type: integer
-          format: int64
-        recipient_id:
-          type: integer
-          format: int64
-        recipient_name:
+        eventId:
+          $ref: '#/components/schemas/ServerId'
+        recipientId:
+          $ref: '#/components/schemas/ServerId'
+        recipientName:
           type: string
           description: Tên người nhận (lấy qua join recipients, để hiển thị)
-        is_primary:
+        isPrimary:
           type: boolean
           default: false
     EventRecipientCreate:
       type: object
-      required: [recipient_id]
+      required: [recipientId]
       properties:
-        recipient_id:
-          type: integer
-          format: int64
-        is_primary:
+        recipientId:
+          $ref: '#/components/schemas/ServerId'
+        isPrimary:
           type: boolean
           default: false
     OccurrenceRecipient:
       type: object
       description: Map 1-1 bảng nối occurrence_recipients
-      required: [occurrence_id, recipient_id]
+      required: [occurrenceId, recipientId]
       properties:
-        occurrence_id:
-          type: integer
-          format: int64
-        recipient_id:
-          type: integer
-          format: int64
-        recipient_name:
+        occurrenceId:
+          $ref: '#/components/schemas/ServerId'
+        recipientId:
+          $ref: '#/components/schemas/ServerId'
+        recipientName:
           type: string
           description: Tên người nhận (lấy qua join recipients, để hiển thị)
     EventOccurrence:
       type: object
       description: Map 1-1 bảng event_occurrences
-      required: [id, event_id, local_date, status]
+      required: [id, eventId, localDate, status]
       properties:
         id:
-          type: integer
-          format: int64
-        event_id:
-          type: integer
-          format: int64
-        nominal_date:
+          $ref: '#/components/schemas/ServerId'
+        eventId:
+          $ref: '#/components/schemas/ServerId'
+        nominalDate:
           type: [string, "null"]
           format: date
           description: Ngày danh nghĩa theo lịch gốc (vd. ngày âm lịch quy đổi)
-        local_date:
+        localDate:
           type: string
           format: date
           description: Ngày diễn ra theo múi giờ của sự kiện
@@ -3087,10 +3150,10 @@ components:
           enum: [PLANNED, PREPARING, COMPLETED, SKIPPED, ACTIVE, CANCELLED]
         note:
           type: [string, "null"]
-        created_at:
+        createdAt:
           type: string
           format: date-time
-        updated_at:
+        updatedAt:
           type: string
           format: date-time
     EventOccurrenceUpdate:
@@ -3124,19 +3187,17 @@ components:
     CalendarItem:
       type: object
       description: >
-        1 lần diễn ra hiển thị trên lịch. Trường event_title lấy từ events.title
+        1 lần diễn ra hiển thị trên lịch. Trường eventTitle lấy từ events.title
         qua join (suy ra, không phải cột của event_occurrences).
-      required: [occurrence_id, event_id, event_title, local_date, status]
+      required: [occurrenceId, eventId, eventTitle, localDate, status]
       properties:
-        occurrence_id:
-          type: integer
-          format: int64
-        event_id:
-          type: integer
-          format: int64
-        event_title:
+        occurrenceId:
+          $ref: '#/components/schemas/ServerId'
+        eventId:
+          $ref: '#/components/schemas/ServerId'
+        eventTitle:
           type: string
-        local_date:
+        localDate:
           type: string
           format: date
         title:
@@ -3162,20 +3223,20 @@ components:
     Budget:
       type: object
       description: Map 1-1 bảng budgets
-      required: [id, scope_type, amount, currency, alert_threshold_percent]
+      required: [id, scopeType, amount, currency, alertThresholdPercent]
       properties:
         id:
-          type: integer
-          format: int64
-        scope_type:
+          $ref: '#/components/schemas/ServerId'
+        scopeType:
           type: string
           enum: [ANNUAL, EVENT]
-        scope_year:
+        scopeYear:
           type: [integer, "null"]
           description: Bắt buộc khi scope ANNUAL, NULL khi scope EVENT
-        occurrence_id:
-          type: [integer, "null"]
-          format: int64
+        occurrenceId:
+          anyOf:
+            - $ref: '#/components/schemas/ServerId'
+            - type: 'null'
           description: Bắt buộc khi scope EVENT, NULL khi scope ANNUAL
         amount:
           type: number
@@ -3185,36 +3246,35 @@ components:
           type: string
           default: VND
           example: VND
-        alert_threshold_percent:
+        alertThresholdPercent:
           type: integer
           minimum: 1
           maximum: 100
           default: 80
           description: Ngưỡng cảnh báo theo % hạn mức
-        created_at:
+        createdAt:
           type: string
           format: date-time
-        updated_at:
+        updatedAt:
           type: string
           format: date-time
     BudgetCreate:
       type: object
-      required: [scope_type, amount]
+      required: [scopeType, amount]
       properties:
-        scope_type:
+        scopeType:
           type: string
           enum: [ANNUAL, EVENT]
-        scope_year:
+        scopeYear:
           type: integer
-        occurrence_id:
-          type: integer
-          format: int64
+        occurrenceId:
+          $ref: '#/components/schemas/ServerId'
         amount:
           type: number
         currency:
           type: string
           default: VND
-        alert_threshold_percent:
+        alertThresholdPercent:
           type: integer
           minimum: 1
           maximum: 100
@@ -3224,7 +3284,7 @@ components:
       properties:
         amount:
           type: number
-        alert_threshold_percent:
+        alertThresholdPercent:
           type: integer
           minimum: 1
           maximum: 100
@@ -3250,19 +3310,19 @@ components:
       description: >
         Tổng hợp 1 ngân sách: hạn mức, chi thực tế (từ view
         v_actual_spend_by_occurrence), phần trăm đã dùng, cờ cảnh báo.
-      required: [budget_id, scope_type, amount, spent, percent_used, alert]
+      required: [budgetId, scopeType, amount, spent, percentUsed, alert]
       properties:
-        budget_id:
-          type: integer
-          format: int64
-        scope_type:
+        budgetId:
+          $ref: '#/components/schemas/ServerId'
+        scopeType:
           type: string
           enum: [ANNUAL, EVENT]
-        scope_year:
+        scopeYear:
           type: [integer, "null"]
-        occurrence_id:
-          type: [integer, "null"]
-          format: int64
+        occurrenceId:
+          anyOf:
+            - $ref: '#/components/schemas/ServerId'
+            - type: 'null'
         amount:
           type: number
           description: Hạn mức
@@ -3272,31 +3332,31 @@ components:
         remaining:
           type: number
           description: Hạn mức trừ chi thực tế (âm nếu vượt)
-        percent_used:
+        percentUsed:
           type: number
           description: Phần trăm đã dùng (spent / amount * 100)
           example: 90
-        alert_threshold_percent:
+        alertThresholdPercent:
           type: integer
           example: 80
         alert:
           type: boolean
-          description: true khi percent_used >= alert_threshold_percent
+          description: true khi percentUsed >= alertThresholdPercent
         currency:
           type: string
           example: VND
     BudgetSummaryResponse:
       type: object
-      required: [items, total_budget, total_spent]
+      required: [items, totalBudget, totalSpent]
       properties:
         items:
           type: array
           items:
             $ref: '#/components/schemas/BudgetSummary'
-        total_budget:
+        totalBudget:
           type: number
           description: Tổng hạn mức các ngân sách trong phạm vi lọc
-        total_spent:
+        totalSpent:
           type: number
           description: Tổng chi thực tế trong phạm vi lọc
         currency:
@@ -3305,22 +3365,22 @@ components:
     Gift:
       type: object
       description: >
-        Map 1-1 bảng gifts. actual_spend suy ra từ view v_gift_actual_spend
+        Map 1-1 bảng gifts. actualSpend suy ra từ view v_gift_actual_spend
         (SUM expenses), không phải cột của gifts.
-      required: [id, recipient_id, name, source, status]
+      required: [id, recipientId, name, source, status]
       properties:
         id:
-          type: integer
-          format: int64
-        recipient_id:
-          type: integer
-          format: int64
-        occurrence_id:
-          type: [integer, "null"]
-          format: int64
-        suggestion_id:
-          type: [integer, "null"]
-          format: int64
+          $ref: '#/components/schemas/ServerId'
+        recipientId:
+          $ref: '#/components/schemas/ServerId'
+        occurrenceId:
+          anyOf:
+            - $ref: '#/components/schemas/ServerId'
+            - type: 'null'
+        suggestionId:
+          anyOf:
+            - $ref: '#/components/schemas/ServerId'
+            - type: 'null'
           description: Gợi ý AI gốc (nếu quà được lưu từ AI)
         name:
           type: string
@@ -3334,77 +3394,74 @@ components:
         status:
           type: string
           enum: [IDEA, CONSIDERING, SELECTED, PURCHASED, GIVEN, RETURNED, CANCELLED]
-        status_changed_at:
+        statusChangedAt:
           type: [string, "null"]
           format: date-time
-        canonical_key:
+        canonicalKey:
           type: [string, "null"]
           maxLength: 150
           description: Khóa chuẩn hóa để đối soát trùng quà
-        product_url:
+        productUrl:
           type: [string, "null"]
           format: uri
-        image_url:
+        imageUrl:
           type: [string, "null"]
           description: Chỉ URL text, không upload file
-        estimated_amount:
+        estimatedAmount:
           type: [number, "null"]
           description: Giá dự kiến, VND NUMERIC(18,2)
-        purchased_on:
+        purchasedOn:
           type: [string, "null"]
           format: date
-        given_on:
+        givenOn:
           type: [string, "null"]
           format: date
-        follow_up_prompted_at:
+        followUpPromptedAt:
           type: [string, "null"]
           format: date-time
-        follow_up_dismissed_at:
+        followUpDismissedAt:
           type: [string, "null"]
           format: date-time
         note:
           type: [string, "null"]
         reaction:
           type: [string, "null"]
-          enum: [LOVED, LIKED, NEUTRAL, UNKNOWN]
+          enum: [LOVED, LIKED, NEUTRAL, UNKNOWN, null]
           description: Cảm nhận sau khi tặng
-        actual_spend:
+        actualSpend:
           type: [number, "null"]
           description: Chi thực tế = SUM(expenses) qua view v_gift_actual_spend
         version:
           type: integer
           example: 1
-        created_at:
+        createdAt:
           type: string
           format: date-time
-        updated_at:
+        updatedAt:
           type: string
           format: date-time
     GiftCreate:
       type: object
-      required: [name, recipient_id]
+      required: [name, recipientId]
       properties:
         name:
           type: string
           maxLength: 200
-        recipient_id:
-          type: integer
-          format: int64
-        occurrence_id:
-          type: integer
-          format: int64
-        suggestion_id:
-          type: integer
-          format: int64
+        recipientId:
+          $ref: '#/components/schemas/ServerId'
+        occurrenceId:
+          $ref: '#/components/schemas/ServerId'
+        suggestionId:
+          $ref: '#/components/schemas/ServerId'
         category:
           type: string
           maxLength: 80
-        estimated_amount:
+        estimatedAmount:
           type: number
-        product_url:
+        productUrl:
           type: string
           format: uri
-        image_url:
+        imageUrl:
           type: string
         note:
           type: string
@@ -3417,19 +3474,19 @@ components:
         category:
           type: string
           maxLength: 80
-        estimated_amount:
+        estimatedAmount:
           type: number
-        product_url:
+        productUrl:
           type: string
           format: uri
-        image_url:
+        imageUrl:
           type: string
         note:
           type: string
-        purchased_on:
+        purchasedOn:
           type: string
           format: date
-        given_on:
+        givenOn:
           type: string
           format: date
         reaction:
@@ -3437,20 +3494,20 @@ components:
           enum: [LOVED, LIKED, NEUTRAL, UNKNOWN]
     GiftStatusUpdate:
       type: object
-      required: [to_status]
+      required: [toStatus]
       properties:
-        to_status:
+        toStatus:
           type: string
           enum: [IDEA, CONSIDERING, SELECTED, PURCHASED, GIVEN, RETURNED, CANCELLED]
           description: Trạng thái đích; chuyển sai trả 409
-        purchased_on:
+        purchasedOn:
           type: string
           format: date
-          description: Bắt buộc khi to_status=PURCHASED
-        given_on:
+          description: Bắt buộc khi toStatus=PURCHASED
+        givenOn:
           type: string
           format: date
-          description: Nên có khi to_status=GIVEN
+          description: Nên có khi toStatus=GIVEN
     GiftPage:
       type: object
       required: [items, page, size, total]
@@ -3470,27 +3527,27 @@ components:
           example: 5
     DuplicateMatch:
       type: object
-      required: [gift_id, name]
+      required: [giftId, name]
       properties:
-        gift_id:
-          type: integer
-          format: int64
+        giftId:
+          $ref: '#/components/schemas/ServerId'
         name:
           type: string
         category:
           type: [string, "null"]
-        given_on:
+        givenOn:
           type: [string, "null"]
           format: date
           description: Ngày đã tặng món này trước đây
-        occurrence_id:
-          type: [integer, "null"]
-          format: int64
+        occurrenceId:
+          anyOf:
+            - $ref: '#/components/schemas/ServerId'
+            - type: 'null'
     DuplicateCheckResult:
       type: object
-      required: [is_duplicate, matches]
+      required: [isDuplicate, matches]
       properties:
-        is_duplicate:
+        isDuplicate:
           type: boolean
           description: true nếu tìm thấy món quà tương tự đã tặng
         matches:
@@ -3500,18 +3557,19 @@ components:
     Expense:
       type: object
       description: Map 1-1 bảng expenses — nguồn duy nhất của chi thực tế
-      required: [id, expense_type, amount, currency, occurred_at, is_counted_in_actual_spend]
+      required: [id, expenseType, amount, currency, occurredAt, isCountedInActualSpend]
       properties:
         id:
-          type: integer
-          format: int64
-        gift_id:
-          type: [integer, "null"]
-          format: int64
-        occurrence_id:
-          type: [integer, "null"]
-          format: int64
-        expense_type:
+          $ref: '#/components/schemas/ServerId'
+        giftId:
+          anyOf:
+            - $ref: '#/components/schemas/ServerId'
+            - type: 'null'
+        occurrenceId:
+          anyOf:
+            - $ref: '#/components/schemas/ServerId'
+            - type: 'null'
+        expenseType:
           type: string
           enum: [GIFT, SHIPPING, WRAPPING, OTHER]
         amount:
@@ -3521,26 +3579,26 @@ components:
         currency:
           type: string
           default: VND
-        occurred_at:
+        occurredAt:
           type: string
           format: date
         description:
           type: [string, "null"]
           maxLength: 200
-        is_counted_in_actual_spend:
+        isCountedInActualSpend:
           type: boolean
           default: true
-        created_at:
+        createdAt:
           type: string
           format: date-time
-        updated_at:
+        updatedAt:
           type: string
           format: date-time
     ExpenseCreate:
       type: object
-      required: [expense_type, amount, occurred_at]
+      required: [expenseType, amount, occurredAt]
       properties:
-        expense_type:
+        expenseType:
           type: string
           enum: [GIFT, SHIPPING, WRAPPING, OTHER]
         amount:
@@ -3548,16 +3606,15 @@ components:
         currency:
           type: string
           default: VND
-        occurred_at:
+        occurredAt:
           type: string
           format: date
         description:
           type: string
           maxLength: 200
-        occurrence_id:
-          type: integer
-          format: int64
-        is_counted_in_actual_spend:
+        occurrenceId:
+          $ref: '#/components/schemas/ServerId'
+        isCountedInActualSpend:
           type: boolean
           default: true
     ExpenseUpdate:
@@ -3565,13 +3622,13 @@ components:
       properties:
         amount:
           type: number
-        occurred_at:
+        occurredAt:
           type: string
           format: date
         description:
           type: string
           maxLength: 200
-        is_counted_in_actual_spend:
+        isCountedInActualSpend:
           type: boolean
     ExpensePage:
       type: object
@@ -3593,18 +3650,16 @@ components:
     ReminderRule:
       type: object
       description: Map 1-1 bảng reminder_rules
-      required: [id, event_id, days_before, reminder_time, enabled]
+      required: [id, eventId, daysBefore, reminderTime, enabled]
       properties:
         id:
-          type: integer
-          format: int64
-        event_id:
-          type: integer
-          format: int64
-        days_before:
+          $ref: '#/components/schemas/ServerId'
+        eventId:
+          $ref: '#/components/schemas/ServerId'
+        daysBefore:
           type: integer
           enum: [14, 7, 3, 1, 0]
-        reminder_time:
+        reminderTime:
           type: string
           pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
           default: '09:00'
@@ -3613,20 +3668,20 @@ components:
         enabled:
           type: boolean
           default: true
-        created_at:
+        createdAt:
           type: string
           format: date-time
-        updated_at:
+        updatedAt:
           type: string
           format: date-time
     ReminderRuleCreate:
       type: object
-      required: [days_before]
+      required: [daysBefore]
       properties:
-        days_before:
+        daysBefore:
           type: integer
           enum: [14, 7, 3, 1, 0]
-        reminder_time:
+        reminderTime:
           type: string
           pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
           default: '09:00'
@@ -3636,10 +3691,10 @@ components:
     ReminderRuleUpdate:
       type: object
       properties:
-        days_before:
+        daysBefore:
           type: integer
           enum: [14, 7, 3, 1, 0]
-        reminder_time:
+        reminderTime:
           type: string
           pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
         enabled:
@@ -3647,47 +3702,45 @@ components:
     Notification:
       type: object
       description: Map 1-1 bảng notifications
-      required: [id, occurrence_id, type, days_before, scheduled_at, status, deduplication_key, snooze_count]
+      required: [id, occurrenceId, type, daysBefore, scheduledAt, status, deduplicationKey, snoozeCount]
       properties:
         id:
-          type: integer
-          format: int64
-        occurrence_id:
-          type: integer
-          format: int64
+          $ref: '#/components/schemas/ServerId'
+        occurrenceId:
+          $ref: '#/components/schemas/ServerId'
         type:
           type: string
           enum: [PREPARE_GIFT, EVENT_TODAY, FOLLOW_UP]
-        days_before:
+        daysBefore:
           type: integer
           enum: [14, 7, 3, 1, 0]
-        scheduled_at:
+        scheduledAt:
           type: string
           format: date-time
         status:
           type: string
           enum: [PENDING, SENT, FAILED, CANCELLED, SNOOZED]
-        deduplication_key:
+        deduplicationKey:
           type: string
           maxLength: 150
           description: Khóa chống nhắc trùng
-        snooze_count:
+        snoozeCount:
           type: integer
           minimum: 0
           default: 0
-        sent_at:
+        sentAt:
           type: [string, "null"]
           format: date-time
-        read_at:
+        readAt:
           type: [string, "null"]
           format: date-time
-        error_code:
+        errorCode:
           type: [string, "null"]
           maxLength: 100
-        created_at:
+        createdAt:
           type: string
           format: date-time
-        updated_at:
+        updatedAt:
           type: string
           format: date-time
     NotificationUpdate:
@@ -3695,10 +3748,10 @@ components:
       properties:
         read:
           type: boolean
-          description: true = đánh dấu đã đọc (đặt read_at)
+          description: true = đánh dấu đã đọc (đặt readAt)
         snooze:
           type: boolean
-          description: true = hoãn nhắc (status SNOOZED, tăng snooze_count)
+          description: true = hoãn nhắc (status SNOOZED, tăng snoozeCount)
     NotificationPage:
       type: object
       required: [items, page, size, total]
@@ -3719,52 +3772,51 @@ components:
     UserDevice:
       type: object
       description: Map 1-1 bảng user_devices
-      required: [id, installation_id, platform, notification_permission, last_seen_at]
+      required: [id, installationId, platform, notificationPermission, lastSeenAt]
       properties:
         id:
-          type: integer
-          format: int64
-        installation_id:
+          $ref: '#/components/schemas/ServerId'
+        installationId:
           type: string
           maxLength: 100
           description: ID cài đặt duy nhất của app trên thiết bị
         platform:
           type: string
           enum: [ANDROID, IOS, WEB]
-        push_token:
+        pushToken:
           type: [string, "null"]
           description: Token FCM/APNs để gửi push
-        notification_permission:
+        notificationPermission:
           type: string
           enum: [GRANTED, DENIED, NOT_ASKED]
           default: NOT_ASKED
-        last_seen_at:
+        lastSeenAt:
           type: string
           format: date-time
-        created_at:
+        createdAt:
           type: string
           format: date-time
-        updated_at:
+        updatedAt:
           type: string
           format: date-time
     UserDeviceCreate:
       type: object
-      required: [installation_id, platform]
+      required: [installationId, platform]
       properties:
-        installation_id:
+        installationId:
           type: string
           maxLength: 100
         platform:
           type: string
           enum: [ANDROID, IOS, WEB]
-        push_token:
+        pushToken:
           type: string
     UserDeviceUpdate:
       type: object
       properties:
-        push_token:
+        pushToken:
           type: string
-        notification_permission:
+        notificationPermission:
           type: string
           enum: [GRANTED, DENIED, NOT_ASKED]
     UserDevicePage:
@@ -3787,35 +3839,31 @@ components:
     AiSuggestionRequest:
       type: object
       description: Đầu vào cho POST /ai/suggestions (UC-14)
-      required: [recipient_id]
+      required: [recipientId]
       properties:
-        recipient_id:
-          type: integer
-          format: int64
-        occurrence_id:
-          type: integer
-          format: int64
-          description: Dịp tặng (để lấy event_type, ngày diễn ra)
-        budget_min:
+        recipientId:
+          $ref: '#/components/schemas/ServerId'
+        occurrenceId:
+          $ref: '#/components/schemas/ServerId'
+          description: Dịp tặng (để lấy eventType, ngày diễn ra)
+        budgetMin:
           type: number
           description: Khoảng giá tối thiểu, VND
-        budget_max:
+        budgetMax:
           type: number
           description: Khoảng giá tối đa, VND
-        additional_instruction:
+        additionalInstruction:
           type: string
           description: Ghi chú thêm cho AI, vd "người nhận thích đồ thủ công"
     AiSuggestion:
       type: object
       description: Map 1-1 bảng ai_suggestions (tối đa 5 gợi ý / 1 request)
-      required: [id, request_id, position, title]
+      required: [id, requestId, position, title]
       properties:
         id:
-          type: integer
-          format: int64
-        request_id:
-          type: integer
-          format: int64
+          $ref: '#/components/schemas/ServerId'
+        requestId:
+          $ref: '#/components/schemas/ServerId'
         position:
           type: integer
           minimum: 1
@@ -3826,9 +3874,9 @@ components:
         category:
           type: [string, "null"]
           maxLength: 100
-        estimated_price_min:
+        estimatedPriceMin:
           type: [number, "null"]
-        estimated_price_max:
+        estimatedPriceMax:
           type: [number, "null"]
         reason:
           type: [string, "null"]
@@ -3836,17 +3884,18 @@ components:
         caution:
           type: [string, "null"]
           description: Lưu ý khi mua/tặng món này
-        canonical_key:
+        canonicalKey:
           type: [string, "null"]
           maxLength: 150
-        duplicate_gift_id:
-          type: [integer, "null"]
-          format: int64
+        duplicateGiftId:
+          anyOf:
+            - $ref: '#/components/schemas/ServerId'
+            - type: 'null'
           description: Món quà đã tặng trước đây trùng với gợi ý này (nếu có)
-        hidden_at:
+        hiddenAt:
           type: [string, "null"]
           format: date-time
-        created_at:
+        createdAt:
           type: string
           format: date-time
     AiRequest:
@@ -3855,41 +3904,42 @@ components:
       required: [id, status]
       properties:
         id:
-          type: integer
-          format: int64
-        recipient_id:
-          type: [integer, "null"]
-          format: int64
-        occurrence_id:
-          type: [integer, "null"]
-          format: int64
-        budget_min:
+          $ref: '#/components/schemas/ServerId'
+        recipientId:
+          anyOf:
+            - $ref: '#/components/schemas/ServerId'
+            - type: 'null'
+        occurrenceId:
+          anyOf:
+            - $ref: '#/components/schemas/ServerId'
+            - type: 'null'
+        budgetMin:
           type: [number, "null"]
-        budget_max:
+        budgetMax:
           type: [number, "null"]
-        additional_instruction:
+        additionalInstruction:
           type: [string, "null"]
         status:
           type: string
           enum: [QUEUED, GENERATED, FAILED, PARTIAL]
-        model_name:
+        modelName:
           type: [string, "null"]
           maxLength: 100
-        token_input:
+        tokenInput:
           type: [integer, "null"]
-        token_output:
+        tokenOutput:
           type: [integer, "null"]
-        cost_cents:
+        costCents:
           type: [integer, "null"]
         suggestions:
           type: array
           items:
             $ref: '#/components/schemas/AiSuggestion'
           description: Tối đa 5 gợi ý, chỉ có khi lấy chi tiết 1 request
-        created_at:
+        createdAt:
           type: string
           format: date-time
-        completed_at:
+        completedAt:
           type: [string, "null"]
           format: date-time
     AiRequestPage:
@@ -3912,36 +3962,35 @@ components:
     AiQuota:
       type: object
       description: Quota AI của user trong ngày Việt Nam (reset 00:00 VN)
-      required: [plan_type, requests_used_today, suggestions_per_request, quota_date]
+      required: [planType, requestsUsedToday, suggestionsPerRequest, quotaDate]
       properties:
-        plan_type:
+        planType:
           type: string
           enum: [FREE, PREMIUM]
-        requests_used_today:
+        requestsUsedToday:
           type: integer
           description: Số lượt đã dùng hôm nay (chỉ tính GENERATED/PARTIAL)
           example: 1
-        requests_per_day:
+        requestsPerDay:
           type: [integer, "null"]
           description: >
             Hạn mức lượt/ngày. Free: 2 (UC-14). Premium: X theo cấu hình Admin.
             NULL = chưa điền, server chặn fail-closed.
           example: 2
-        suggestions_per_request:
+        suggestionsPerRequest:
           type: integer
           description: >
             Số sản phẩm tối đa mỗi lượt. Free: 3 (UC-14). Premium: Y.
           example: 3
-        quota_date:
+        quotaDate:
           type: string
           format: date
           description: Ngày Việt Nam mà quota này áp dụng
     AiSuggestionSave:
       type: object
       properties:
-        occurrence_id:
-          type: integer
-          format: int64
+        occurrenceId:
+          $ref: '#/components/schemas/ServerId'
           description: Gắn món quà đã lưu vào 1 lần diễn ra (tùy chọn)
         note:
           type: string
@@ -3954,27 +4003,25 @@ components:
       properties:
         reason:
           type: [string, "null"]
-          enum: [TOO_EXPENSIVE, ALREADY_GIVEN, NOT_MATCHING_INTERESTS, NOT_MATCHING_OCCASION, OTHER]
+          enum: [TOO_EXPENSIVE, ALREADY_GIVEN, NOT_MATCHING_INTERESTS, NOT_MATCHING_OCCASION, OTHER, null]
         detail:
           type: string
           description: Ghi chú thêm về phản hồi
     SuggestionFeedback:
       type: object
       description: Map 1-1 bảng suggestion_feedback (1 phản hồi / 1 gợi ý)
-      required: [id, suggestion_id]
+      required: [id, suggestionId]
       properties:
         id:
-          type: integer
-          format: int64
-        suggestion_id:
-          type: integer
-          format: int64
+          $ref: '#/components/schemas/ServerId'
+        suggestionId:
+          $ref: '#/components/schemas/ServerId'
         reason:
           type: [string, "null"]
-          enum: [TOO_EXPENSIVE, ALREADY_GIVEN, NOT_MATCHING_INTERESTS, NOT_MATCHING_OCCASION, OTHER]
+          enum: [TOO_EXPENSIVE, ALREADY_GIVEN, NOT_MATCHING_INTERESTS, NOT_MATCHING_OCCASION, OTHER, null]
         detail:
           type: [string, "null"]
-        created_at:
+        createdAt:
           type: string
           format: date-time
     AdminAiStats:
@@ -3982,9 +4029,9 @@ components:
       description: >
         1 hàng của view v_ai_daily_stats: thống kê theo ngày Việt Nam + model.
         Không có thời gian phản hồi trung bình và tỉ lệ lỗi/Fallback (D13).
-      required: [stat_date, model, requests, failed_requests, total_tokens_in, total_tokens_out, total_cost_cents]
+      required: [statDate, model, requests, failedRequests, totalTokensIn, totalTokensOut, totalCostCents]
       properties:
-        stat_date:
+        statDate:
           type: string
           format: date
           description: Ngày theo giờ Việt Nam
@@ -3995,13 +4042,13 @@ components:
         requests:
           type: integer
           description: Số lượt gọi thành công (GENERATED/PARTIAL)
-        failed_requests:
+        failedRequests:
           type: integer
           description: Số lượt gọi lỗi (FAILED)
-        total_tokens_in:
+        totalTokensIn:
           type: integer
-        total_tokens_out:
+        totalTokensOut:
           type: integer
-        total_cost_cents:
+        totalCostCents:
           type: integer
           description: Tổng chi phí API tính bằng cents

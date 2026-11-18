@@ -76,3 +76,10 @@ tasks.withType<JavaCompile> {
     dependsOn("openApiGenerate")
 }
 
+
+tasks.register<org.openapitools.generator.gradle.plugin.tasks.GenerateTask>("generateMobileApi") {
+    generatorName.set("typescript-fetch")
+    inputSpec.set(openApiGenerate.inputSpec)
+    outputDir.set(layout.buildDirectory.dir("generated-mobile-api").get().asFile.absolutePath)
+    additionalProperties.set(mapOf("modelPropertyNaming" to "original"))
+}

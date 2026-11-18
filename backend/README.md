@@ -2,6 +2,8 @@
 
 Backend sử dụng Java 25, Spring Boot, Gradle và PostgreSQL 18.
 
+[Hướng dẫn dùng API GiftMate cho FE, BE và QA](../docs/api/README.md).
+
 ## Chạy backend bằng Docker
 
 Đây là cách chạy chung của nhóm. Xem hướng dẫn tạo `.env`, khởi động database,
@@ -70,11 +72,11 @@ src/main/resources/
   db/migration/V1__create_users.sql   # Flyway: schema do migration quản lý (ddl-auto=validate)
 ```
 
-## API (khớp với app mobile)
+## API đã triển khai trong backend mẫu
 
 | Method | Đường dẫn               | Auth   | Mô tả                                                           |
 | ------ | ----------------------- | ------ | --------------------------------------------------------------- |
-| POST   | `/api/v1/auth/register` | không  | Body `{fullName, email, password}` → `201 {accessToken, user}`  |
+| POST   | `/api/v1/auth/register` | không  | Body `{displayName, email, password}` → `201 {accessToken, user}`  |
 | POST   | `/api/v1/auth/login`    | không  | Body `{email, password}` → `200 {accessToken, user}`            |
 | GET    | `/api/v1/users/me`      | Bearer | Trả `{id, email, fullName}`                                     |
 | GET    | `/actuator/health`      | không  | Kiểm tra sống/chết                                              |
@@ -86,7 +88,7 @@ Thử nhanh:
 
 ```bash
 curl -X POST localhost:8080/api/v1/auth/register -H 'Content-Type: application/json' \
-  -d '{"fullName":"Test","email":"test@example.com","password":"password123"}'
+  -d '{"displayName":"Test","email":"test@example.com","password":"password123"}'
 ```
 
 ## Ghi chú

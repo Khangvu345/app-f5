@@ -2,6 +2,8 @@
 
 Stack: Expo (managed) · TypeScript · Expo Router · Zustand · Axios · expo-secure-store · ESLint + Prettier · Jest.
 
+[Hướng dẫn dùng API GiftMate cho FE, BE và QA](../docs/api/README.md).
+
 ## Cài đặt
 
 ```bash

@@ -1,6 +1,29 @@
 # Sử dụng API GiftMate
 
-FE, BE và QA dùng chung [hợp đồng OpenAPI](../../backend/src/main/resources/openapi/GiftMate_API_Contract_v1.yaml). Mở `paths` để tra phương thức, đường dẫn, request và mã phản hồi. Mở `components.schemas` để tra trường bắt buộc, enum và kiểu dữ liệu. JSON dùng camelCase. ID do server cấp là chuỗi chữ số, ví dụ `"42"`.
+## Bắt đầu từ đây
+
+Hợp đồng API là thỏa thuận giữa ứng dụng mobile và backend về dữ liệu hai bên trao đổi qua HTTP. Với mỗi chức năng, cả nhóm thống nhất ứng dụng sẽ gọi đường dẫn nào, gửi dữ liệu gì, nhận về những trường nào và xử lý lỗi ra sao. GiftMate dùng **contract-first**: nhóm ghi thỏa thuận vào [file OpenAPI](../../backend/src/main/resources/openapi/GiftMate_API_Contract_v1.yaml) để FE và BE có thể bắt đầu cùng lúc. Swagger UI hiển thị nội dung của file này theo từng nhóm chức năng.
+
+- **FE** tra dữ liệu màn hình cần gửi và nhận, dùng kiểu TypeScript sinh từ hợp đồng và dựng màn hình bằng dữ liệu mock trong lúc chờ backend.
+- **BE** dựa vào cùng mô tả để viết controller, kiểm tra đầu vào và trả đúng mã HTTP, tên trường và kiểu dữ liệu mà FE đang dùng.
+- **QA** lấy các trường bắt buộc, giới hạn, enum và phản hồi lỗi làm cơ sở viết ca kiểm thử. Khi backend hoàn thành, so sánh phản hồi thật với hợp đồng.
+
+### Tìm API cho công việc đang làm
+
+Trong Swagger, mở nhóm chức năng tương ứng. Nếu đọc YAML trên GitHub, tìm đường dẫn trong `paths` rồi theo `$ref` đến `components.schemas` để xem cấu trúc dữ liệu. Bảng dưới liệt kê một số điểm bắt đầu. Các đường dẫn đều dùng chung tiền tố `/api/v1` trên backend.
+
+| Công việc | Đường dẫn để bắt đầu tra |
+| --- | --- |
+| Đăng nhập, hồ sơ và cài đặt | `/auth/login`, `/users/me`, `/users/me/settings` |
+| Người nhận và sở thích | `/recipients`, `/recipients/{id}/preferences` |
+| Sự kiện và lịch | `/events`, `/events/calendar`, `/events/{id}/occurrences` |
+| Lời nhắc, thông báo và thiết bị | `/events/{id}/reminder-rules`, `/notifications`, `/devices` |
+| Quà, chi phí và ngân sách | `/gifts`, `/gifts/{id}/expenses`, `/budgets/summary` |
+| AI, hạn mức và quản trị | `/ai/requests`, `/ai/quota`, `/admin/plan-limits` |
+
+Ví dụ, khi nhận màn hình **Lịch theo tháng**, FE mở **Sự kiện → GET /events/calendar**. Mục **Parameters** cho biết `from` và `to` là hai ngày tùy chọn truyền trên URL. FE có thể gọi `GET /api/v1/events/calendar?from=2026-11-01&to=2026-11-30`. Mục **Responses → 200 → Schema** dẫn tới `CalendarPage`, nơi cả nhóm tra cấu trúc kết quả. BE dùng mô tả để xử lý trường hợp bỏ trống khoảng ngày, QA kiểm tra mặc định là tháng hiện tại theo múi giờ `Asia/Ho_Chi_Minh`. Đây là cách đọc áp dụng được cho các API khác. Với thao tác có **Request body**, đọc thêm các trường bắt buộc trước khi gửi. JSON dùng camelCase và ID do server cấp là chuỗi chữ số, ví dụ `"42"`.
+
+Một API xuất hiện trong Swagger khi nhóm đã đưa mô tả vào YAML. Việc triển khai và nghiệm thu trên server diễn ra theo từng module. Đợt hiện tại ưu tiên CRUD người nhận, sự kiện và quà thủ công. Phần Premium và hạn mức AI sẽ được hoàn thiện sau. Các bước dưới đây dùng CRUD để minh họa cách thử hợp đồng và dùng auth mẫu để minh họa cách gọi backend thật.
 
 ## FE và QA · thử CRUD khi backend đang phát triển
 

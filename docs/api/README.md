@@ -60,6 +60,23 @@ Ba nhóm dùng các đường dẫn `/recipients`, `/events`, `/gifts`. Mỗi nh
 
 Ở thời điểm PR #6, backend mẫu xử lý đăng ký, đăng nhập và xem hồ sơ. Các nhóm CRUD người nhận, sự kiện và quà đã có schema để FE dùng mock. Ví dụ, backend thật trả `404` khi gọi `POST /recipients` với token hợp lệ vì controller tạo người nhận còn chờ triển khai. Phần auth mẫu trả `accessToken` và `user`, trong đó `user.id` đang là số và tên hiển thị là `fullName`. Khi triển khai theo contract, đối chiếu lại với schema auth và lỗi `ApiError`.
 
+## FE dùng gì trong client TypeScript đã sinh?
+
+Mở `backend/build/generated-mobile-api/` sau khi chạy `generateMobileApi`. Cả thư mục là client TypeScript được sinh từ YAML.
+
+| Thành phần | Khi nào FE cần |
+| --- | --- |
+| `models/` | Tra kiểu dữ liệu gửi và nhận. Ví dụ với form thêm người nhận, mở `RecipientCreate.ts` để xem các trường khi gửi, rồi mở `Recipient.ts` để xem kiểu kết quả. |
+| `apis/` | Tìm theo tên thao tác trong Swagger (ví dụ `createRecipient`) để thấy hàm gọi HTTP, tham số và kiểu trả về. Tìm theo thao tác cũng hữu ích khi tên file sinh từ tag tiếng Việt khó đọc. |
+| `runtime.ts` | Chứa phần dùng chung của client Fetch, gồm cấu hình địa chỉ server, token và cách gửi request. |
+| `index.ts` | Điểm export để ứng dụng import các API, model và cấu hình khi tích hợp client. |
+
+Ví dụ, với màn hình **Thêm người nhận**, FE đối chiếu dữ liệu từ form với `RecipientCreate`, xem chữ ký `createRecipient` và dùng kiểu `Recipient` để đọc ID trong kết quả. Trong VS Code, nhấn **Ctrl + Shift + F**, nhập `createRecipient` và giới hạn tìm kiếm trong thư mục đã sinh. Nếu VS Code bỏ qua `build/`, mở trực tiếp `apis/` rồi tìm trong file.
+
+**Trạng thái tích hợp ở PR #6:** Gradle xuất mã vào thư mục build của backend. App Expo hiện gọi API qua Axios tại `mobile/src/services/api/`. Chạy generator chưa đưa client vào bundle của app. FE có thể tra kiểu và thử payload trên mock ngay. Để gọi trực tiếp từ mã sinh, team cần tích hợp đầu ra dưới dạng module mà mobile import được, cấu hình URL và Bearer token cho client Fetch rồi chạy type-check trong mobile. Interceptor token của Axios chỉ áp dụng cho các request qua Axios.
+
+Khi cần đổi một trường hay một thao tác, sửa YAML rồi chạy lại generator. Các file trong `build/` có thể được tạo lại khi build hoặc bị xóa bởi Gradle `clean`.
+
 ## Khi thay đổi hợp đồng
 
 Sửa YAML trong PR và ghi rõ màn hình hoặc client bị ảnh hưởng. Chạy từ thư mục `backend` với JDK 25:

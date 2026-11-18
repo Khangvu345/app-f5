@@ -9,7 +9,7 @@ info:
     Ngày giờ ISO 8601 theo Asia/Ho_Chi_Minh. Xóa mềm (deleted_at), DELETE trả 204.
     Nhóm AI (UC-14/UC-15) có trong contract để đủ map 16 UC nhưng CHƯA TRIỂN KHAI
     ở đợt này (phát triển sau, Q3) — gọi endpoint AI trước khi triển khai sẽ trả 501.
-    Trial Premium (Q5) chờ quyết định nhóm — v1 chưa có premium_until.
+    V1 cấp và thu hồi Premium thủ công qua PATCH /admin/users/{id}/plan. Trial tự hết hạn để sau v1.
     OAuth chỉ Google + Apple (Q2: bỏ Facebook khỏi UC-01, enum authProvider giữ EMAIL/GOOGLE/APPLE, không sửa DB).
   license:
     name: Chưa công bố — nội bộ dự án GiftMate
@@ -187,6 +187,8 @@ paths:
         UC-01 (D6). Sau khi Guest đăng ký/đăng nhập, gom dữ liệu cục bộ (người nhận,
         sự kiện, quà) gộp vào tài khoản. Server nhận diện bản ghi theo tài khoản, entityType và localId. Gửi lại trả cùng serverId. Chỉ nhận dữ liệu của chính
         user đang đăng nhập.
+        Một lần nhập là một giao dịch: lỗi bất kỳ bản ghi hoặc tham chiếu local nào trả 400 và hủy toàn bộ lần nhập.
+        Thành công trả mapping cho từng bản ghi, kể cả bản đã nhập. Mobile chỉ đánh dấu sau khi nhận đủ mapping.
       requestBody:
         required: true
         content:
@@ -2083,31 +2085,6 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-  /admin/users/{id}/trial-premium:
-    post:
-      tags: [Admin]
-      operationId: grantTrialPremium
-      summary: Cấp Premium thử nghiệm cho 1 tài khoản
-      description: >
-        UC-16, Q5 (CHỜ NHÓM). Chỉ role ADMIN. v1 chỉ set planType=PREMIUM,
-        chưa có premium_until vì Q5 chưa chốt — endpoint này KHÔNG có body.
-        Khi nhóm chốt ngày hết hạn, v1.1 sẽ thêm trường premium_until
-        (migration riêng) và body nhận expires_at.
-      parameters:
-        - $ref: '#/components/parameters/IdParam'
-      responses:
-        '200':
-          description: Cấp Premium xong
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AdminUser'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
   /admin/users/{id}/plan:
     patch:
       tags: [Admin]
@@ -2689,7 +2666,7 @@ components:
       type: object
       example: {id: '42', name: Lan, relationship: PARTNER, isFavourite: false}
       description: Map 1-1 bảng recipients
-      required: [id, name, isFavourite]
+      required: [id, name, relationship, isFavourite]
       properties:
         id:
           $ref: '#/components/schemas/ServerId'
@@ -2740,6 +2717,7 @@ components:
       properties:
         name:
           type: string
+          pattern: '\S'
           maxLength: 150
         relationship:
           type: string

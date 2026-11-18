@@ -4,9 +4,11 @@ FE, BE và QA dùng chung [hợp đồng OpenAPI](../../backend/src/main/resourc
 
 ## Tra API trên Swagger
 
+> **API có biểu tượng khóa yêu cầu đăng nhập.** Gọi `POST /auth/login`, sao chép giá trị `accessToken` trong **Server response**, rồi bấm **Authorize** ở đầu Swagger và dán token vào ô **BearerAuth**. Swagger tự thêm tiền tố `Bearer` khi gửi request.
+
 1. Chuẩn bị `.env` theo [README gốc](../../README.md). Từ gốc repo chạy `docker compose up -d --build --wait backend`, rồi mở [Swagger UI](http://127.0.0.1:8080/swagger-ui/index.html).
 2. Chọn chức năng cần làm. Xem **Parameters / Request body** để biết dữ liệu cần gửi và **Responses → Schema** để biết kiểu dữ liệu nhận về.
-3. Với API đã triển khai, bấm **Try it out → Execute** để gọi backend thật. Nếu cần đăng nhập, lấy `accessToken` từ `POST /auth/login`, dán riêng giá trị token vào **Authorize**, rồi thử `GET /users/me`.
+3. Với API đã triển khai, bấm **Try it out → Execute** để gọi backend thật. Thử `GET /users/me` để kiểm tra token và xem hồ sơ tài khoản.
 
 ## Thử API khi backend chưa viết xong
 

@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.UUID;
 
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
@@ -26,7 +25,7 @@ class TokenServiceTest {
         SecretKey key = new SecretKeySpec(properties.secret().getBytes(StandardCharsets.UTF_8), "HmacSHA256");
         TokenService service = new TokenService(new NimbusJwtEncoder(new ImmutableSecret<>(key)), properties);
 
-        UUID userId = UUID.randomUUID();
+        Long userId = 1L;
         String token = service.generateAccessToken(userId, "user@example.com");
 
         Jwt jwt = NimbusJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build().decode(token);

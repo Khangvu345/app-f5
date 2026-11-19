@@ -1,7 +1,6 @@
 package com.example.backend.user;
 
 import java.time.Instant;
-import java.util.UUID;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -17,8 +16,8 @@ import jakarta.persistence.Table;
 public class User {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    private UUID id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
     @Column(nullable = false, unique = true, length = 255)
     private String email;
@@ -57,7 +56,7 @@ public class User {
         this.updatedAt = Instant.now();
     }
 
-    public UUID getId() {
+    public Long getId() {
         return id;
     }
 

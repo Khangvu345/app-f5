@@ -7,6 +7,8 @@ backend/   Spring Boot 4.1.1, Java 25, PostgreSQL 18 → backend/README.md · ba
 
 Quy trình Git và commit: [CONTRIBUTING.md](CONTRIBUTING.md).
 
+[Hướng dẫn dùng API GiftMate cho FE, BE và QA](docs/api/README.md).
+
 ## Chạy backend + database bằng Docker 
 
 Yêu cầu duy nhất: Docker Desktop đang chạy. Không cần cài Java hay PostgreSQL trên máy.

@@ -1,7 +1,5 @@
 package com.example.backend.user;
 
-import java.util.UUID;
-
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,6 +18,6 @@ public class UserController {
 
     @GetMapping("/me")
     public UserResponse me(@AuthenticationPrincipal Jwt jwt) {
-        return userService.getById(UUID.fromString(jwt.getSubject()));
+        return userService.getById(Long.parseLong(jwt.getSubject()));
     }
 }

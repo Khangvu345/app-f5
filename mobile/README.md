@@ -4,6 +4,8 @@ Stack: Expo (managed) · TypeScript · Expo Router · Zustand · Axios · expo-s
 
 [Hướng dẫn dùng API GiftMate cho FE, BE và QA](../docs/api/README.md).
 
+[Cài đặt và kiểm tra SQLite local cho GiftMate](../backend/src/main/resources/db/setup/README-local.md).
+
 ## Cài đặt
 
 ```bash

@@ -16,7 +16,12 @@ public class UserService {
     @Transactional(readOnly = true)
     public UserResponse getById(Long id) {
         return userRepository.findById(id)
-                .map(UserResponse::from)
+                .map(user -> {
+                    if (!"ACTIVE".equals(user.getStatus())) {
+                        throw ApiException.unauthorized("ACCOUNT_INACTIVE", "Tài khoản hiện không hoạt động.");
+                    }
+                    return UserResponse.from(user);
+                })
                 .orElseThrow(() -> ApiException.notFound("USER_NOT_FOUND", "Không tìm thấy người dùng."));
     }
 }

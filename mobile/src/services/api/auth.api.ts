@@ -10,5 +10,13 @@ export const authApi = {
   register: async (payload: RegisterPayload) =>
     (await apiClient.post<AuthResponse>('/auth/register', payload)).data,
 
+  provider: async (provider: 'google' | 'apple', idToken: string, nonce?: string) =>
+    (
+      await apiClient.post<AuthResponse>(`/auth/oauth/${provider}`, {
+        idToken,
+        ...(nonce ? { nonce } : {}),
+      })
+    ).data,
+
   me: async () => (await apiClient.get<User>('/users/me')).data,
 };

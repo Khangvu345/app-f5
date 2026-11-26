@@ -4,10 +4,8 @@ import { env } from '@/config/env';
 import { tokenStorage } from '@/services/storage/token-storage';
 import { toApiError } from '@/utils/api-error';
 
-let unauthorizedHandler: (() => void) | null = null;
-
-/** Registered once at app start; avoids a circular import with the auth store. */
-export function setUnauthorizedHandler(handler: () => void) {
+let unauthorizedHandler: ((token: string) => void) | null = null;
+export function setUnauthorizedHandler(handler: ((token: string) => void) | null) {
   unauthorizedHandler = handler;
 }
 
@@ -18,18 +16,22 @@ export const apiClient = axios.create({
 });
 
 apiClient.interceptors.request.use(async (config) => {
-  const token = await tokenStorage.getAccessToken();
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+  // Authentication failures must never invalidate a previously active session.
+  if (!config.url?.startsWith('/auth/')) {
+    const token = await tokenStorage.getAccessToken();
+    if (token) config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
 
 apiClient.interceptors.response.use(
   (response) => response,
-  (error) => {
+  (error: unknown) => {
     if (axios.isAxiosError(error) && error.response?.status === 401) {
-      unauthorizedHandler?.();
+      const header = error.config?.headers?.Authorization;
+      if (typeof header === 'string' && header.startsWith('Bearer ')) {
+        unauthorizedHandler?.(header.slice(7));
+      }
     }
     return Promise.reject(toApiError(error));
   },

@@ -11,8 +11,5 @@ export default function Index() {
     return null;
   }
 
-  if (status === 'authenticated') {
-    return <Redirect href="/(app)" />;
-  }
-  return <Redirect href="/(auth)/login" />;
+  return <Redirect href="/(app)" />;
 }

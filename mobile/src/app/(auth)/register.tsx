@@ -1,4 +1,4 @@
-import { Link } from 'expo-router';
+import { Link, router } from 'expo-router';
 import { useState } from 'react';
 import { KeyboardAvoidingView, StyleSheet, Text, View } from 'react-native';
 
@@ -29,7 +29,8 @@ export default function RegisterScreen() {
     setError(null);
     setIsLoading(true);
     try {
-      await register({ fullName: fullName.trim(), email: email.trim(), password });
+      await register({ displayName: fullName.trim(), email: email.trim(), password });
+      router.replace('/(app)');
     } catch (e) {
       setError(toApiError(e).message);
     } finally {

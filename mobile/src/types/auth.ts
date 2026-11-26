@@ -1,8 +1,10 @@
-// NOTE: these shapes are a proposal. Align them with the backend contract in Phase 2.
+import type { LocalProfile } from './local-storage';
+
 export interface User {
   id: string;
-  email: string;
-  fullName: string;
+  email: string | null;
+  displayName: string;
+  planType: 'FREE' | 'PREMIUM';
 }
 
 export interface LoginPayload {
@@ -11,10 +13,19 @@ export interface LoginPayload {
 }
 
 export interface RegisterPayload extends LoginPayload {
-  fullName: string;
+  displayName: string;
 }
 
 export interface AuthResponse {
   accessToken: string;
+  expiresIn: number;
   user: User;
+}
+
+export interface StoredSession {
+  accessToken: string;
+  expiresAt: number;
+  user: User;
+  pendingLink: boolean;
+  pendingSource: LocalProfile | null;
 }

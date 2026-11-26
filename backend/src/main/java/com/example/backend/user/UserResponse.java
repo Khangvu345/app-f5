@@ -1,10 +1,9 @@
 package com.example.backend.user;
 
-
-/** Public view of a user (never exposes the password hash). Matches the app's `User` type. */
-public record UserResponse(Long id, String email, String fullName) {
-
+/** Public account details; IDs are strings to preserve precision on mobile. */
+public record UserResponse(String id, String email, String displayName, String role, String status, String planType) {
     public static UserResponse from(User user) {
-        return new UserResponse(user.getId(), user.getEmail(), user.getFullName());
+        return new UserResponse(user.getId().toString(), user.getEmail(), user.getFullName(),
+                user.getRole(), user.getStatus(), user.getPlanType());
     }
 }

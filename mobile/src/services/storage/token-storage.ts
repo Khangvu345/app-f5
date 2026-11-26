@@ -1,10 +1,6 @@
-import * as SecureStore from 'expo-secure-store';
+import { sessionStorage } from './session-storage';
 
-const ACCESS_TOKEN_KEY = 'access_token';
-
-// SecureStore uses the Android Keystore: use it for tokens, not AsyncStorage.
+// All session fields share one secure record, so token and profile cannot diverge.
 export const tokenStorage = {
-  getAccessToken: () => SecureStore.getItemAsync(ACCESS_TOKEN_KEY),
-  setAccessToken: (token: string) => SecureStore.setItemAsync(ACCESS_TOKEN_KEY, token),
-  clear: () => SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY),
+  getAccessToken: async () => (await sessionStorage.get())?.accessToken ?? null,
 };

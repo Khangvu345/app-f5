@@ -4,7 +4,9 @@ info:
   version: 1.0.0
   description: >
     API contract v1 của GiftMate — nguồn duy nhất (contract-first, hướng A).
-    Base path /api/v1. Auth: Bearer JWT, mọi dữ liệu scoping theo user_id.
+    Base path /api/v1. Auth: Bearer JWT, dữ liệu server scoping theo user_id.
+    MVP lưu dữ liệu quà tặng trong SQLite theo hồ sơ trên thiết bị, kể cả Free;
+    các endpoint CRUD cloud dưới đây là hợp đồng dự kiến, không thuộc đường chạy MVP.
     ID là BIGINT, truyền qua API dưới dạng chuỗi chữ số. Tiền VND NUMERIC(18,2).
     Ngày giờ ISO 8601 theo Asia/Ho_Chi_Minh. Xóa mềm (deleted_at), DELETE trả 204.
     Nhóm AI (UC-14/UC-15) có trong contract để đủ map 16 UC nhưng CHƯA TRIỂN KHAI
@@ -50,8 +52,8 @@ paths:
       summary: Đăng ký tài khoản mới bằng email
       description: >
         UC-01. Tạo tài khoản EMAIL (authProvider=EMAIL). Email phải duy nhất;
-        trùng email trả 409. Tạo kèm user_settings mặc định (timezone
-        Asia/Ho_Chi_Minh, locale vi, currency VND, plan FREE).
+        trùng email trả 409. Backend hiện lưu tài khoản với role USER, status ACTIVE
+        và planType FREE mặc định; user_settings thuộc hợp đồng dự kiến.
       security: []
       requestBody:
         required: true
@@ -77,7 +79,8 @@ paths:
       summary: Đăng nhập bằng email/mật khẩu
       description: >
         UC-01. Sai email hoặc sai mật khẩu trả 401 (không phân biệt lý do).
-        Trả access token (TTL 1h theo application.yaml) + refresh token.
+        Hiện trả accessToken, tokenType, expiresIn và user; refresh token
+        dự kiến do issue #13 hoàn thiện.
       security: []
       requestBody:
         required: true
@@ -102,10 +105,12 @@ paths:
       operationId: oauthLogin
       summary: Đăng nhập bằng tài khoản Google hoặc Apple
       description: >
-        UC-01. Chỉ hỗ trợ GOOGLE và APPLE (Q2: bỏ Facebook). Provider khác trả 400.
-        Body chứa idToken do nhà cung cấp cấp. Lần đầu đăng nhập: tạo user mới
-        (authProvider=GOOGLE/APPLE, provider_subject lấy từ idToken) + user_settings
-        mặc định. Đã có tài khoản cùng provider_subject thì đăng nhập thẳng.
+        UC-01. Chỉ hỗ trợ GOOGLE và APPLE. Xác minh ID token với audience
+        đã cấu hình. Apple yêu cầu nonce gốc có SHA-256 hex khớp nonce claim.
+        Provider không phân biệt chữ hoa thường. Email trùng tài khoản khác trả
+        409 EMAIL_ALREADY_USED; không tự liên kết.
+        Body chứa idToken do nhà cung cấp cấp. Lần đầu đăng nhập tạo user và
+        danh tính provider từ subject trong token; danh tính đã có được dùng để đăng nhập.
       security: []
       parameters:
         - name: provider
@@ -113,7 +118,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [GOOGLE, APPLE]
+            enum: [GOOGLE, APPLE, google, apple]
       requestBody:
         required: true
         content:
@@ -131,13 +136,15 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /auth/refresh:
     post:
       tags: [Auth]
       operationId: refreshToken
       summary: Đổi refresh token lấy access token mới
       description: >
-        UC-01, Q6. Server chỉ lưu hash SHA-256 của refresh token (bảng refresh_tokens),
+        Dự kiến theo issue #13; chưa triển khai. UC-01, Q6. Server chỉ lưu hash SHA-256 của refresh token (bảng refresh_tokens),
         không lưu token gốc. Refresh thành công: thu hồi token cũ (revoked_at) và
         cấp refresh token mới (xoay vòng). Token hết hạn hoặc đã thu hồi trả 401.
         Refresh token hết hạn sau 30 ngày.
@@ -165,7 +172,7 @@ paths:
       operationId: logoutUser
       summary: Đăng xuất, thu hồi refresh token
       description: >
-        UC-02. Thu hồi refresh token gửi kèm (nếu có) và kết thúc phiên. Access token
+        Dự kiến theo issue #13; chưa triển khai. UC-02. Thu hồi refresh token gửi kèm (nếu có) và kết thúc phiên. Access token
         còn hạn vẫn dùng được tới khi hết TTL 1h (không có blacklist ở v1).
       requestBody:
         required: false
@@ -182,8 +189,10 @@ paths:
     post:
       tags: [Auth]
       operationId: syncGuestData
-      summary: Đồng bộ dữ liệu Guest (cục bộ) vào tài khoản
+      summary: Đồng bộ dữ liệu Guest lên cloud (dự kiến)
       description: >
+        Dự kiến cho cloud về sau, ngoài đường chạy đăng nhập MVP và chưa triển khai.
+        MVP chỉ liên kết hoặc gộp hồ sơ SQLite trên cùng máy, không tải dữ liệu quà lên server.
         UC-01 (D6). Sau khi Guest đăng ký/đăng nhập, gom dữ liệu cục bộ (người nhận,
         sự kiện, quà) gộp vào tài khoản. Server nhận diện bản ghi theo tài khoản, entityType và localId. Gửi lại trả cùng serverId. Chỉ nhận dữ liệu của chính
         user đang đăng nhập.
@@ -212,9 +221,9 @@ paths:
       operationId: getMe
       summary: Lấy hồ sơ của mình
       description: >
-        UC-02. Trả thông tin users + user_settings gộp (displayName, planType,
-        timezone, locale, currency). Không có trường avatar (D11: v2.2 không có
-        cột avatar).
+        UC-02. Backend hiện trả id, email, displayName, role, status và planType.
+        Các trường cài đặt tùy chọn timezone, locale và currency thuộc hợp đồng dự kiến.
+        Không có trường avatar (D11: v2.2 không có cột avatar).
       responses:
         '200':
           description: Hồ sơ hiện tại
@@ -404,9 +413,9 @@ paths:
       operationId: createRecipient
       summary: Tạo người nhận mới
       description: >
-        UC-04. Tên bắt buộc (bỏ trống trả 400). Gói Free giới hạn 20 người nhận
-        (plan_limits FREE.recipient_limit); vượt giới hạn trả 403 mã
-        RECIPIENT_LIMIT_REACHED. birthDay và birthMonth phải đi cùng nhau
+        Hợp đồng cloud dự kiến. UC-04. Tên bắt buộc (bỏ trống trả 400).
+        MVP lưu SQLite: khách có 2 lượt tạo cộng dồn, Free không giới hạn chức năng cơ bản.
+        birthDay và birthMonth phải đi cùng nhau
         (cả hai có hoặc cả hai không) theo CHECK của DB.
       requestBody:
         required: true
@@ -1501,8 +1510,8 @@ paths:
       summary: Thêm ý tưởng quà
       description: >
         UC-11. Tên và recipientId bắt buộc. productUrl phải đúng định dạng URL
-        (sai trả 400). Trạng thái ban đầu IDEA. Gói Free giới hạn 200 ý tưởng
-        đang hoạt động (plan_limits FREE.active_gift_ideas); vượt giới hạn trả 403.
+        (sai trả 400). Trạng thái ban đầu IDEA. Đây là hợp đồng cloud dự kiến;
+        MVP lưu SQLite, khách có 5 lượt lưu thủ công cộng dồn và Free mở chức năng cơ bản.
       requestBody:
         required: true
         content:
@@ -2226,7 +2235,11 @@ components:
                 example: Không được để trống
     RegisterRequest:
       type: object
-      required: [email, password, displayName]
+      required: [email, password]
+      description: Cần displayName hoặc alias tương thích fullName; ưu tiên displayName cho client mới.
+      anyOf:
+        - required: [displayName]
+        - required: [fullName]
       properties:
         email:
           type: string
@@ -2237,12 +2250,16 @@ components:
           type: string
           format: password
           minLength: 8
-          maxLength: 255
-          description: Mật khẩu tối thiểu 8 ký tự
+          maxLength: 72
+          description: Mật khẩu từ 8 đến 72 ký tự và tối đa 72 byte UTF-8.
         displayName:
           type: string
           maxLength: 100
           example: Khánh
+        fullName:
+          type: string
+          maxLength: 100
+          description: Alias tương thích cho displayName trong request cũ.
     LoginRequest:
       type: object
       required: [email, password]
@@ -2261,6 +2278,9 @@ components:
         idToken:
           type: string
           description: ID token do Google hoặc Apple cấp sau khi user đăng nhập trên app
+        nonce:
+          type: string
+          description: Bắt buộc với Apple; SHA-256 của nonce gốc dạng hex phải khớp nonce claim trong ID token.
     RefreshTokenRequest:
       type: object
       required: [refreshToken]
@@ -2270,14 +2290,15 @@ components:
           description: Refresh token nhận được lúc đăng nhập (server chỉ lưu hash SHA-256)
     AuthResponse:
       type: object
-      required: [accessToken, refreshToken, tokenType, expiresIn, user]
+      description: Backend trả accessToken, tokenType, expiresIn và user; refreshToken dự kiến trong issue #13.
+      required: [accessToken, tokenType, expiresIn, user]
       properties:
         accessToken:
           type: string
           description: JWT access token, TTL 1h
         refreshToken:
           type: string
-          description: Refresh token, hết hạn sau 30 ngày; xoay vòng mỗi lần refresh
+          description: Dự kiến issue #13; refresh token hết hạn sau 30 ngày và xoay vòng mỗi lần refresh
         tokenType:
           type: string
           example: Bearer
@@ -2412,8 +2433,8 @@ components:
     UserProfile:
       type: object
       description: >
-        Hồ sơ gộp users + user_settings cho GET /users/me. Trường user là
-        object lồng (suy ra, không phải cột DB).
+        Hồ sơ tài khoản cho GET /users/me và phản hồi auth. Các trường cài đặt
+        tùy chọn thuộc hợp đồng dự kiến, chưa có trong DTO hiện tại.
       required: [id, email, displayName, role, status, planType]
       properties:
         id:

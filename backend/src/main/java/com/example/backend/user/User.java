@@ -19,14 +19,23 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 255)
+    @Column(unique = true, length = 255)
     private String email;
 
-    @Column(name = "password_hash", nullable = false)
+    @Column(name = "password_hash")
     private String passwordHash;
 
     @Column(name = "full_name", nullable = false, length = 100)
     private String fullName;
+
+    @Column(nullable = false, length = 10)
+    private String role = "USER";
+
+    @Column(nullable = false, length = 10)
+    private String status = "ACTIVE";
+
+    @Column(name = "plan_type", nullable = false, length = 10)
+    private String planType = "FREE";
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -70,6 +79,18 @@ public class User {
 
     public String getFullName() {
         return fullName;
+    }
+
+    public String getRole() {
+        return role;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public String getPlanType() {
+        return planType;
     }
 
     public Instant getCreatedAt() {

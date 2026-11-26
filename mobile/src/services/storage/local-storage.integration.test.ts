@@ -298,10 +298,18 @@ test('process crash during attached database transaction leaves no partial recor
     db.exec("PRAGMA profile.journal_mode=DELETE; BEGIN IMMEDIATE");
     db.prepare("INSERT INTO profile.recipients(local_id,name,relationship) VALUES(?,'Crash','FRIEND')").run(process.argv[3]);
     db.prepare("INSERT INTO operations(operation_id,kind,profile_id,state,charged) VALUES('crash-op','recipient',(SELECT id FROM profiles WHERE is_guest=1),'confirmed',1)").run();
+    require('node:fs').writeSync(1, 'transaction-open');
     process.kill(process.pid, 'SIGKILL');
   `;
   const child = spawnSync(process.execPath, ['-e', script, registry, file, id(200)]);
-  expect(child.signal).toBe('SIGKILL');
+  expect(child.error).toBeUndefined();
+  expect(child.stdout.toString()).toBe('transaction-open');
+  if (process.platform === 'win32') {
+    expect(child.status).toEqual(expect.any(Number));
+    expect(child.status).not.toBe(0);
+  } else {
+    expect(child.signal).toBe('SIGKILL');
+  }
   expect((await getTrialUsage()).recipient).toBe(0);
   const db = new MockDatabaseSync(file);
   expect(db.prepare('SELECT count(*) AS count FROM recipients').get()?.count).toBe(0);

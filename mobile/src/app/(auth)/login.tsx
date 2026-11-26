@@ -1,8 +1,9 @@
-import { Link } from 'expo-router';
+import { Link, router } from 'expo-router';
 import { useState } from 'react';
 import { KeyboardAvoidingView, StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '@/components/ui/Button';
+import { ProviderLogin } from '@/components/ui/ProviderLogin';
 import { Screen } from '@/components/ui/Screen';
 import { TextField } from '@/components/ui/TextField';
 import { useAuthStore } from '@/store/auth.store';
@@ -25,7 +26,7 @@ export default function LoginScreen() {
     setIsLoading(true);
     try {
       await login({ email: email.trim(), password });
-      // On success the root layout guard redirects to the app group.
+      router.replace('/(app)');
     } catch (e) {
       setError(toApiError(e).message);
     } finally {
@@ -54,6 +55,8 @@ export default function LoginScreen() {
         />
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Button title="Đăng nhập" onPress={onSubmit} loading={isLoading} />
+        <ProviderLogin />
+        <Link href="/(app)">Quay lại dùng thử</Link>
         <View style={styles.footer}>
           <Text style={styles.muted}>Chưa có tài khoản? </Text>
           <Link href="/register" style={styles.link}>

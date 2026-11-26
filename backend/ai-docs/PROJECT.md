@@ -19,7 +19,7 @@ Khách dùng thử được cả khi ngoại tuyến. Mỗi bản cài có bốn
 
 Xem, sửa, xóa và hẹn lại mốc đã tính đều giữ nguyên số lượt đã dùng. Khi hết lượt một loại, app mời đăng nhập ở lần tạo tiếp theo của loại đó. Khách vẫn xem được dữ liệu cũ và dùng các tính năng còn lượt.
 
-Sau khi backend xác thực, Free mở đầy đủ UC-04–13. Trên cùng điện thoại, dữ liệu khách và lịch nhắc được giữ trong hồ sơ của tài khoản vừa đăng nhập. Nếu tài khoản đã có hồ sơ trên máy, app gộp dữ liệu khách một lần. Mỗi tài khoản chỉ mở hồ sơ của mình. Khi phiên còn hạn, các tính năng cơ bản vẫn dùng được ngoại tuyến. Premium chỉ khác Free ở quyền và hạn mức AI.
+Sau khi backend xác thực, Free mở đầy đủ UC-04–13. Trên cùng điện thoại, dữ liệu khách và lịch nhắc được giữ trong hồ sơ của tài khoản vừa đăng nhập. Nếu tài khoản đã có hồ sơ trên máy, app gộp dữ liệu khách một lần. Hai file SQLite v2 có thể cùng cấp một ID cho hai người khác nhau. Khi gộp, app ánh xạ ID theo bảng để giữ đúng người nhận của từng dịp, món quà và lịch nhắc. Mỗi tài khoản chỉ mở hồ sơ của mình. Khi phiên còn hạn, các tính năng cơ bản vẫn dùng được ngoại tuyến. Premium chỉ khác Free ở quyền và hạn mức AI.
 
 ## Lưu trữ dữ liệu trên thiết bị
 

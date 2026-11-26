@@ -10,5 +10,8 @@ function required(value: string | undefined, name: string): string {
 export const env = {
   apiBaseUrl: required(process.env.EXPO_PUBLIC_API_BASE_URL, 'EXPO_PUBLIC_API_BASE_URL'),
   apiTimeoutMs: Number(process.env.EXPO_PUBLIC_API_TIMEOUT_MS ?? 15000),
+  googleWebClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? '',
+  googleIosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? '',
+  appleEnabled: process.env.EXPO_PUBLIC_APPLE_SIGN_IN_ENABLED === 'true',
   appEnv: process.env.EXPO_PUBLIC_APP_ENV ?? 'development',
 } as const;

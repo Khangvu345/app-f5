@@ -21,15 +21,21 @@ public class TokenService {
         this.properties = properties;
     }
 
+    public long accessTokenTtlSeconds() {
+        return properties.accessTokenTtl().toSeconds();
+    }
+
     public String generateAccessToken(Long userId, String email) {
         Instant now = Instant.now();
-        JwtClaimsSet claims = JwtClaimsSet.builder()
+        JwtClaimsSet.Builder claimsBuilder = JwtClaimsSet.builder()
                 .issuer(properties.issuer())
                 .issuedAt(now)
                 .expiresAt(now.plus(properties.accessTokenTtl()))
-                .subject(userId.toString())
-                .claim("email", email)
-                .build();
+                .subject(userId.toString());
+        if (email != null) {
+            claimsBuilder.claim("email", email);
+        }
+        JwtClaimsSet claims = claimsBuilder.build();
         JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).build();
         return jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
     }

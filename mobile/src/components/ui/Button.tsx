@@ -1,18 +1,29 @@
-import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { colors, fontSize, radius, spacing } from '@/theme';
+import { colors, fonts, fontSize, radius, spacing } from '@/theme';
+
+import { Icon, type IconName } from './Icon';
+
+type Variant = 'primary' | 'secondary' | 'danger';
 
 interface Props {
   title: string;
   onPress: () => void;
   loading?: boolean;
   disabled?: boolean;
-  variant?: 'primary' | 'secondary';
+  variant?: Variant;
+  icon?: IconName;
 }
 
-export function Button({ title, onPress, loading, disabled, variant = 'primary' }: Props) {
-  const isPrimary = variant === 'primary';
+const TEXT_COLOR: Record<Variant, string> = {
+  primary: colors.primaryText,
+  secondary: colors.primary,
+  danger: colors.danger,
+};
+
+export function Button({ title, onPress, loading, disabled, variant = 'primary', icon }: Props) {
   const isDisabled = disabled || loading;
+  const textColor = TEXT_COLOR[variant];
 
   return (
     <Pressable
@@ -21,16 +32,17 @@ export function Button({ title, onPress, loading, disabled, variant = 'primary' 
       disabled={isDisabled}
       style={({ pressed }) => [
         styles.base,
-        isPrimary ? styles.primary : styles.secondary,
+        styles[variant],
         (pressed || isDisabled) && styles.dimmed,
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={isPrimary ? colors.primaryText : colors.primary} />
+        <ActivityIndicator color={textColor} />
       ) : (
-        <Text style={[styles.label, { color: isPrimary ? colors.primaryText : colors.primary }]}>
-          {title}
-        </Text>
+        <View style={styles.content}>
+          {icon ? <Icon name={icon} size={18} color={textColor} /> : null}
+          <Text style={[styles.label, { color: textColor }]}>{title}</Text>
+        </View>
       )}
     </Pressable>
   );
@@ -38,14 +50,20 @@ export function Button({ title, onPress, loading, disabled, variant = 'primary' 
 
 const styles = StyleSheet.create({
   base: {
-    minHeight: 48,
+    minHeight: 52,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.md,
   },
   primary: { backgroundColor: colors.primary },
-  secondary: { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.primary },
+  secondary: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  danger: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.dangerBorder },
   dimmed: { opacity: 0.6 },
-  label: { fontSize: fontSize.md, fontWeight: '600' },
+  content: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  label: { fontFamily: fonts.semiBold, fontSize: fontSize.md },
 });

@@ -1,12 +1,18 @@
-import { Tabs } from 'expo-router';
+import { Stack } from 'expo-router';
 
+import { useReminderReconcile } from '@/features/notifications/hooks/useReminderReconcile';
 import { colors } from '@/theme';
 
 export default function AppLayout() {
+  useReminderReconcile();
   return (
-    <Tabs screenOptions={{ tabBarActiveTintColor: colors.primary }}>
-      <Tabs.Screen name="index" options={{ title: 'Trang chủ' }} />
-      <Tabs.Screen name="profile" options={{ title: 'Cá nhân' }} />
-    </Tabs>
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
+      <Stack.Screen name="(tabs)" />
+    </Stack>
   );
 }

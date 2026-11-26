@@ -7,7 +7,7 @@ import { ProviderLogin } from '@/components/ui/ProviderLogin';
 import { Screen } from '@/components/ui/Screen';
 import { TextField } from '@/components/ui/TextField';
 import { useAuthStore } from '@/store/auth.store';
-import { colors, fontSize, spacing } from '@/theme';
+import { colors, fonts, fontSize, spacing } from '@/theme';
 import { toApiError } from '@/utils/api-error';
 
 export default function LoginScreen() {
@@ -70,9 +70,9 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   form: { flex: 1, justifyContent: 'center', gap: spacing.md },
-  title: { fontSize: fontSize.xl, fontWeight: '700', color: colors.text },
-  error: { color: colors.danger, fontSize: fontSize.sm },
+  title: { fontFamily: fonts.bold, fontSize: fontSize.xl, color: colors.text },
+  error: { fontFamily: fonts.regular, color: colors.danger, fontSize: fontSize.sm },
   footer: { flexDirection: 'row', justifyContent: 'center' },
-  muted: { color: colors.textMuted },
-  link: { color: colors.primary, fontWeight: '600' },
+  muted: { fontFamily: fonts.regular, color: colors.textMuted },
+  link: { fontFamily: fonts.semiBold, color: colors.primary },
 });

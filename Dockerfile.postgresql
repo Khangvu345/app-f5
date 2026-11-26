@@ -1,6 +1,0 @@
-FROM postgres:18-alpine
-
-ENV POSTGRES_DB=giftmate
-ENV TZ=Asia/Ho_Chi_Minh
-
-COPY backend/src/main/resources/db/setup/02-server.sql /docker-entrypoint-initdb.d/02-server.sql

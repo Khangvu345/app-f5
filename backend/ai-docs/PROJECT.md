@@ -25,6 +25,8 @@ Sau khi backend xác thực, Free mở đầy đủ UC-04–13. Trên cùng đi�
 
 Trong giai đoạn CRUD cơ bản, ứng dụng di động lưu và đọc dữ liệu quà tặng ngay trong SQLite theo từng hồ sơ trên điện thoại, gồm hồ sơ người nhận, sự kiện, cấu hình nhắc, ý tưởng quà, ngân sách và lịch sử mua hoặc tặng thuộc phạm vi từng issue. Quy tắc này áp dụng cả khi dùng thử và sau khi đăng nhập. Để bảo vệ quyền riêng tư, PostgreSQL chỉ lưu thông tin cơ bản cần cho tài khoản, xác thực và quyền sử dụng, trong giới hạn đã chốt ở ERD. Đăng nhập không kích hoạt tải dữ liệu quà tặng lên máy chủ.
 
+Thiết kế SQL giai đoạn 1 và quy ước bàn giao ID 64 bit giữa các module nằm trong [ánh xạ ERD sang SQLite](../src/main/resources/db/setup/README-local.md).
+
 Nhóm để việc lưu dữ liệu quà tặng trên cloud, sao lưu và đồng bộ giữa các thiết bị để xem xét sau. Khi nhận issue CRUD, agent đối chiếu thực thể với ERD và xác định phần lưu trữ thuộc mobile trước khi đề xuất API hoặc bảng phía server.
 
 ## Phạm vi để giao việc

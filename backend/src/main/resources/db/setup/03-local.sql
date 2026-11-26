@@ -1,24 +1,23 @@
--- GiftMate | SQLite trên điện thoại, phiên bản 1. Chạy từ thư mục db/setup:
+-- GiftMate | SQLite trên điện thoại, phiên bản 2. Chạy từ thư mục db/setup:
 --   sqlite3 -bail ":memory:" ".read 03-local.sql" ".read 04-kiem-tra-local.sql"
 -- Xem README-local.md để tạo file thử và tích hợp Expo. Flyway quản lý PostgreSQL ở ../migration.
 -- Chạy một lần trên file mới cho mỗi hồ sơ (khách hoặc tài khoản), ngoài giao dịch của bên gọi.
 -- App bật PRAGMA foreign_keys = ON mỗi lần mở kết nối và rollback nếu khởi tạo lỗi.
 -- Dữ liệu thử nghiệm trong schema PostgreSQL giftmate_local cũ cần được nhập riêng nếu muốn giữ.
--- App sinh local_id (UUID chữ thường) ngay trên máy. FK giữa các bản ghi luôn dùng ID local.
+-- SQLite cấp local_id là số nguyên 64 bit dương trong từng bảng của hồ sơ. FK dùng ID local.
 -- BIGINT của server được lưu dưới dạng chuỗi thập phân. Đăng nhập chỉ liên kết tài khoản.
--- /auth/sync v1 trả localId và serverId cho recipient, event, gift. Chỉ ghi nhận khi đủ mapping
--- của lô gửi. server_version để NULL tới khi API trả phiên bản. Đồng bộ mặc định tắt.
+-- GĐ1 chỉ trao đổi tài khoản, xác thực và quyền dịch vụ. Gắn tài khoản giữ CRUD trên máy.
 -- Ngày dương lịch dùng YYYY-MM-DD, thời điểm dùng UTC ISO 8601. Số tiền nguyên = số tiền × 100.
--- Khi sửa bản ghi dùng UPDATE. Với khóa nghiệp vụ đã xóa mềm, khôi phục bản ghi để giữ UUID.
+-- Khi sửa bản ghi dùng UPDATE. Với khóa nghiệp vụ đã xóa mềm, khôi phục bản ghi để giữ ID.
 PRAGMA foreign_keys = ON;
-BEGIN IMMEDIATE;
+SAVEPOINT create_local_schema;
 
 -- Một file ứng với một hồ sơ. Dùng thử ngay khi chưa có server_user_id.
 CREATE TABLE local_profile (
     slot INTEGER PRIMARY KEY CHECK (slot = 1),
     server_user_id TEXT CHECK (server_user_id IS NULL OR (server_user_id NOT GLOB '*[^0-9]*' AND substr(server_user_id, 1, 1) BETWEEN '1' AND '9'
           AND (length(server_user_id) BETWEEN 1 AND 18 OR (length(server_user_id) = 19 AND server_user_id <= '9223372036854775807')))),
-    sync_enabled INTEGER NOT NULL DEFAULT 0 CHECK (sync_enabled IN (0, 1)),
+    sync_enabled INTEGER NOT NULL DEFAULT 0 CHECK (sync_enabled = 0),
     pull_cursor TEXT,
     CHECK (sync_enabled = 0 OR server_user_id IS NOT NULL),
     CHECK (pull_cursor IS NULL OR server_user_id IS NOT NULL)
@@ -57,7 +56,7 @@ END;
 
 -- Hồ sơ người nhận. Tên và mối quan hệ bắt buộc.
 CREATE TABLE recipients (
-    local_id TEXT NOT NULL PRIMARY KEY,
+    local_id INTEGER PRIMARY KEY AUTOINCREMENT CHECK (local_id > 0),
     server_id TEXT UNIQUE,
     server_version INTEGER CHECK (server_version >= 1),
     name TEXT NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND 150),
@@ -74,7 +73,6 @@ CREATE TABLE recipients (
     deleted_at TEXT,
     local_rev INTEGER NOT NULL DEFAULT 1 CHECK (local_rev >= 1),
     acked_local_rev INTEGER NOT NULL DEFAULT 0 CHECK (acked_local_rev BETWEEN 0 AND local_rev),
-    CHECK (length(local_id) = 36 AND local_id GLOB '????????-????-????-????-????????????' AND length(replace(local_id, '-', '')) = 32 AND replace(local_id, '-', '') NOT GLOB '*[^0-9a-f]*'),
     CHECK (server_id IS NULL OR (server_id NOT GLOB '*[^0-9]*' AND substr(server_id, 1, 1) BETWEEN '1' AND '9'
           AND (length(server_id) BETWEEN 1 AND 18 OR (length(server_id) = 19 AND server_id <= '9223372036854775807')))),
     CHECK (server_id IS NOT NULL OR (server_version IS NULL AND acked_local_rev = 0)),
@@ -85,10 +83,10 @@ CREATE TABLE recipients (
 
 -- Sở thích, điều cần tránh và trạng thái xác nhận.
 CREATE TABLE recipient_preferences (
-    local_id TEXT NOT NULL PRIMARY KEY,
+    local_id INTEGER PRIMARY KEY AUTOINCREMENT CHECK (local_id > 0),
     server_id TEXT UNIQUE,
     server_version INTEGER CHECK (server_version >= 1),
-    recipient_id TEXT NOT NULL REFERENCES recipients(local_id) ON DELETE CASCADE,
+    recipient_id INTEGER NOT NULL REFERENCES recipients(local_id) ON DELETE CASCADE,
     category TEXT NOT NULL CHECK (length(trim(category)) BETWEEN 1 AND 80),
     value TEXT NOT NULL CHECK (length(trim(value)) BETWEEN 1 AND 200),
     polarity TEXT NOT NULL CHECK (polarity IN ('LIKE', 'DISLIKE', 'AVOID')),
@@ -100,7 +98,6 @@ CREATE TABLE recipient_preferences (
     deleted_at TEXT,
     local_rev INTEGER NOT NULL DEFAULT 1 CHECK (local_rev >= 1),
     acked_local_rev INTEGER NOT NULL DEFAULT 0 CHECK (acked_local_rev BETWEEN 0 AND local_rev),
-    CHECK (length(local_id) = 36 AND local_id GLOB '????????-????-????-????-????????????' AND length(replace(local_id, '-', '')) = 32 AND replace(local_id, '-', '') NOT GLOB '*[^0-9a-f]*'),
     CHECK (server_id IS NULL OR (server_id NOT GLOB '*[^0-9]*' AND substr(server_id, 1, 1) BETWEEN '1' AND '9'
           AND (length(server_id) BETWEEN 1 AND 18 OR (length(server_id) = 19 AND server_id <= '9223372036854775807')))),
     CHECK (server_id IS NOT NULL OR (server_version IS NULL AND acked_local_rev = 0))
@@ -113,10 +110,10 @@ CREATE INDEX ix_recipients_relationship ON recipients(relationship) WHERE delete
 
 -- Dịp và quy tắc lặp. FK trì hoãn bảo đảm dịp có ít nhất một thành viên khi COMMIT.
 CREATE TABLE events (
-    local_id TEXT NOT NULL PRIMARY KEY,
+    local_id INTEGER PRIMARY KEY AUTOINCREMENT CHECK (local_id > 0),
     server_id TEXT UNIQUE,
     server_version INTEGER CHECK (server_version >= 1),
-    anchor_recipient_id TEXT NOT NULL,
+    anchor_recipient_id INTEGER NOT NULL,
     title TEXT NOT NULL CHECK (length(trim(title)) BETWEEN 1 AND 150),
     event_type TEXT NOT NULL CHECK (event_type IN ('BIRTHDAY', 'ANNIVERSARY', 'WEDDING', 'GRADUATION', 'HOLIDAY', 'CUSTOM')),
     occasion_type TEXT CHECK (occasion_type IN ('BIRTHDAY', 'ANNIVERSARY', 'HOLIDAY', 'OTHER')),
@@ -138,7 +135,6 @@ CREATE TABLE events (
     deleted_at TEXT,
     local_rev INTEGER NOT NULL DEFAULT 1 CHECK (local_rev >= 1),
     acked_local_rev INTEGER NOT NULL DEFAULT 0 CHECK (acked_local_rev BETWEEN 0 AND local_rev),
-    CHECK (length(local_id) = 36 AND local_id GLOB '????????-????-????-????-????????????' AND length(replace(local_id, '-', '')) = 32 AND replace(local_id, '-', '') NOT GLOB '*[^0-9a-f]*'),
     CHECK (server_id IS NULL OR (server_id NOT GLOB '*[^0-9]*' AND substr(server_id, 1, 1) BETWEEN '1' AND '9'
           AND (length(server_id) BETWEEN 1 AND 18 OR (length(server_id) = 19 AND server_id <= '9223372036854775807')))),
     CHECK (server_id IS NOT NULL OR (server_version IS NULL AND acked_local_rev = 0)),
@@ -153,8 +149,8 @@ CREATE TABLE events (
 
 -- Lưu cả người nhận được dùng làm anchor. is_primary vẫn là thuộc tính nghiệp vụ độc lập.
 CREATE TABLE event_recipients (
-    event_id TEXT NOT NULL REFERENCES events(local_id) ON DELETE CASCADE,
-    recipient_id TEXT NOT NULL REFERENCES recipients(local_id) ON DELETE RESTRICT,
+    event_id INTEGER NOT NULL REFERENCES events(local_id) ON DELETE CASCADE,
+    recipient_id INTEGER NOT NULL REFERENCES recipients(local_id) ON DELETE RESTRICT,
     is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
     PRIMARY KEY (event_id, recipient_id)
 ) STRICT;
@@ -162,11 +158,11 @@ CREATE INDEX ix_event_recipients_reverse ON event_recipients(recipient_id, event
 
 -- Một lần diễn ra theo ngày dương đã quy đổi.
 CREATE TABLE event_occurrences (
-    local_id TEXT NOT NULL PRIMARY KEY,
+    local_id INTEGER PRIMARY KEY AUTOINCREMENT CHECK (local_id > 0),
     server_id TEXT UNIQUE,
     server_version INTEGER CHECK (server_version >= 1),
-    event_id TEXT NOT NULL REFERENCES events(local_id) ON DELETE CASCADE,
-    anchor_recipient_id TEXT NOT NULL,
+    event_id INTEGER NOT NULL REFERENCES events(local_id) ON DELETE CASCADE,
+    anchor_recipient_id INTEGER NOT NULL,
     nominal_date TEXT,
     local_date TEXT NOT NULL CHECK (local_date IS NULL OR (local_date IS date(local_date, '+0 days') AND length(local_date) = 10)),
     title TEXT CHECK (length(title) <= 150),
@@ -177,7 +173,6 @@ CREATE TABLE event_occurrences (
     deleted_at TEXT,
     local_rev INTEGER NOT NULL DEFAULT 1 CHECK (local_rev >= 1),
     acked_local_rev INTEGER NOT NULL DEFAULT 0 CHECK (acked_local_rev BETWEEN 0 AND local_rev),
-    CHECK (length(local_id) = 36 AND local_id GLOB '????????-????-????-????-????????????' AND length(replace(local_id, '-', '')) = 32 AND replace(local_id, '-', '') NOT GLOB '*[^0-9a-f]*'),
     CHECK (server_id IS NULL OR (server_id NOT GLOB '*[^0-9]*' AND substr(server_id, 1, 1) BETWEEN '1' AND '9'
           AND (length(server_id) BETWEEN 1 AND 18 OR (length(server_id) = 19 AND server_id <= '9223372036854775807')))),
     CHECK (server_id IS NOT NULL OR (server_version IS NULL AND acked_local_rev = 0)),
@@ -189,18 +184,18 @@ CREATE TABLE event_occurrences (
 
 CREATE INDEX ix_occurrences_calendar ON event_occurrences(local_date, event_id) WHERE deleted_at IS NULL;
 CREATE TABLE occurrence_recipients (
-    occurrence_id TEXT NOT NULL REFERENCES event_occurrences(local_id) ON DELETE CASCADE,
-    recipient_id TEXT NOT NULL REFERENCES recipients(local_id) ON DELETE RESTRICT,
+    occurrence_id INTEGER NOT NULL REFERENCES event_occurrences(local_id) ON DELETE CASCADE,
+    recipient_id INTEGER NOT NULL REFERENCES recipients(local_id) ON DELETE RESTRICT,
     PRIMARY KEY (occurrence_id, recipient_id)
 ) STRICT;
 CREATE INDEX ix_occurrence_recipients_reverse ON occurrence_recipients(recipient_id, occurrence_id);
 
 -- Mốc nhắc của từng dịp. Một dịp có tối đa một quy tắc cho cùng số ngày nhắc trước.
 CREATE TABLE reminder_rules (
-    local_id TEXT NOT NULL PRIMARY KEY,
+    local_id INTEGER PRIMARY KEY AUTOINCREMENT CHECK (local_id > 0),
     server_id TEXT UNIQUE,
     server_version INTEGER CHECK (server_version >= 1),
-    event_id TEXT NOT NULL REFERENCES events(local_id) ON DELETE CASCADE,
+    event_id INTEGER NOT NULL REFERENCES events(local_id) ON DELETE CASCADE,
     days_before INTEGER NOT NULL CHECK (days_before IN (14, 7, 3, 1, 0)),
     reminder_time TEXT NOT NULL DEFAULT '09:00' CHECK (length(reminder_time) = 5
         AND reminder_time GLOB '[0-2][0-9]:[0-5][0-9]' AND reminder_time <= '23:59'),
@@ -210,7 +205,6 @@ CREATE TABLE reminder_rules (
     deleted_at TEXT,
     local_rev INTEGER NOT NULL DEFAULT 1 CHECK (local_rev >= 1),
     acked_local_rev INTEGER NOT NULL DEFAULT 0 CHECK (acked_local_rev BETWEEN 0 AND local_rev),
-    CHECK (length(local_id) = 36 AND local_id GLOB '????????-????-????-????-????????????' AND length(replace(local_id, '-', '')) = 32 AND replace(local_id, '-', '') NOT GLOB '*[^0-9a-f]*'),
     CHECK (server_id IS NULL OR (server_id NOT GLOB '*[^0-9]*' AND substr(server_id, 1, 1) BETWEEN '1' AND '9'
           AND (length(server_id) BETWEEN 1 AND 18 OR (length(server_id) = 19 AND server_id <= '9223372036854775807')))),
     CHECK (server_id IS NOT NULL OR (server_version IS NULL AND acked_local_rev = 0)),
@@ -220,9 +214,9 @@ CREATE TABLE reminder_rules (
 -- Một lịch hệ điều hành cho một lần diễn ra và một mốc trên thiết bị hiện tại.
 -- Hai FK ghép buộc quy tắc nhắc và lần diễn ra cùng thuộc một dịp.
 CREATE TABLE notification_schedules (
-    occurrence_id TEXT NOT NULL,
+    occurrence_id INTEGER NOT NULL,
     days_before INTEGER NOT NULL,
-    event_id TEXT NOT NULL,
+    event_id INTEGER NOT NULL,
     scheduled_at TEXT NOT NULL,
     local_notification_id TEXT UNIQUE,
     status TEXT NOT NULL DEFAULT 'PENDING'
@@ -236,11 +230,11 @@ CREATE INDEX ix_schedules_rule ON notification_schedules(event_id, days_before);
 
 -- Ý tưởng, quá trình mua/tặng và lịch sử theo người nhận.
 CREATE TABLE gifts (
-    local_id TEXT NOT NULL PRIMARY KEY,
+    local_id INTEGER PRIMARY KEY AUTOINCREMENT CHECK (local_id > 0),
     server_id TEXT UNIQUE,
     server_version INTEGER CHECK (server_version >= 1),
-    recipient_id TEXT NOT NULL REFERENCES recipients(local_id) ON DELETE RESTRICT,
-    occurrence_id TEXT REFERENCES event_occurrences(local_id) ON DELETE SET NULL,
+    recipient_id INTEGER NOT NULL REFERENCES recipients(local_id) ON DELETE RESTRICT,
+    occurrence_id INTEGER REFERENCES event_occurrences(local_id) ON DELETE SET NULL,
     suggestion_server_id TEXT CHECK (suggestion_server_id IS NULL OR (suggestion_server_id NOT GLOB '*[^0-9]*' AND substr(suggestion_server_id, 1, 1) BETWEEN '1' AND '9'
           AND (length(suggestion_server_id) BETWEEN 1 AND 18 OR (length(suggestion_server_id) = 19 AND suggestion_server_id <= '9223372036854775807')))),
     name TEXT NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND 200),
@@ -264,24 +258,36 @@ CREATE TABLE gifts (
     deleted_at TEXT,
     local_rev INTEGER NOT NULL DEFAULT 1 CHECK (local_rev >= 1),
     acked_local_rev INTEGER NOT NULL DEFAULT 0 CHECK (acked_local_rev BETWEEN 0 AND local_rev),
-    CHECK (length(local_id) = 36 AND local_id GLOB '????????-????-????-????-????????????' AND length(replace(local_id, '-', '')) = 32 AND replace(local_id, '-', '') NOT GLOB '*[^0-9a-f]*'),
     CHECK (server_id IS NULL OR (server_id NOT GLOB '*[^0-9]*' AND substr(server_id, 1, 1) BETWEEN '1' AND '9'
           AND (length(server_id) BETWEEN 1 AND 18 OR (length(server_id) = 19 AND server_id <= '9223372036854775807')))),
     CHECK (server_id IS NOT NULL OR (server_version IS NULL AND acked_local_rev = 0)),
     CHECK (status <> 'PURCHASED' OR purchased_on IS NOT NULL)
 ) STRICT;
 
+-- Các trạng thái cho phép khi sửa một món quà đã lưu.
+CREATE TRIGGER gifts_check_status BEFORE UPDATE OF status ON gifts
+WHEN OLD.status <> NEW.status AND NOT (
+    (OLD.status = 'IDEA' AND NEW.status IN ('CONSIDERING', 'SELECTED', 'CANCELLED')) OR
+    (OLD.status = 'CONSIDERING' AND NEW.status IN ('IDEA', 'SELECTED', 'CANCELLED')) OR
+    (OLD.status = 'SELECTED' AND NEW.status IN ('CONSIDERING', 'PURCHASED', 'CANCELLED')) OR
+    (OLD.status = 'PURCHASED' AND NEW.status IN ('GIVEN', 'RETURNED', 'CANCELLED')) OR
+    (OLD.status = 'GIVEN' AND NEW.status = 'RETURNED')
+)
+BEGIN
+    SELECT RAISE(ABORT, 'Invalid gift status transition');
+END;
+
 CREATE INDEX ix_gifts_recipient ON gifts(recipient_id, status) WHERE deleted_at IS NULL;
 CREATE INDEX ix_gifts_occurrence ON gifts(occurrence_id) WHERE occurrence_id IS NOT NULL;
 
 -- Hạn mức theo năm hoặc theo một lần diễn ra.
 CREATE TABLE budgets (
-    local_id TEXT NOT NULL PRIMARY KEY,
+    local_id INTEGER PRIMARY KEY AUTOINCREMENT CHECK (local_id > 0),
     server_id TEXT UNIQUE,
     server_version INTEGER CHECK (server_version >= 1),
     scope_type TEXT NOT NULL CHECK (scope_type IN ('ANNUAL', 'EVENT')),
     scope_year INTEGER CHECK (scope_year BETWEEN 1 AND 9999),
-    occurrence_id TEXT REFERENCES event_occurrences(local_id) ON DELETE CASCADE,
+    occurrence_id INTEGER REFERENCES event_occurrences(local_id) ON DELETE CASCADE,
     amount_x100 INTEGER NOT NULL CHECK (amount_x100 BETWEEN 1 AND 999999999999999999),
     currency TEXT NOT NULL DEFAULT 'VND' CHECK (currency GLOB '[A-Z][A-Z][A-Z]'),
     alert_threshold_percent INTEGER NOT NULL DEFAULT 80 CHECK (alert_threshold_percent BETWEEN 1 AND 100),
@@ -290,7 +296,6 @@ CREATE TABLE budgets (
     deleted_at TEXT,
     local_rev INTEGER NOT NULL DEFAULT 1 CHECK (local_rev >= 1),
     acked_local_rev INTEGER NOT NULL DEFAULT 0 CHECK (acked_local_rev BETWEEN 0 AND local_rev),
-    CHECK (length(local_id) = 36 AND local_id GLOB '????????-????-????-????-????????????' AND length(replace(local_id, '-', '')) = 32 AND replace(local_id, '-', '') NOT GLOB '*[^0-9a-f]*'),
     CHECK (server_id IS NULL OR (server_id NOT GLOB '*[^0-9]*' AND substr(server_id, 1, 1) BETWEEN '1' AND '9'
           AND (length(server_id) BETWEEN 1 AND 18 OR (length(server_id) = 19 AND server_id <= '9223372036854775807')))),
     CHECK (server_id IS NOT NULL OR (server_version IS NULL AND acked_local_rev = 0)),
@@ -303,11 +308,11 @@ CREATE UNIQUE INDEX ux_budget_occurrence ON budgets(occurrence_id) WHERE scope_t
 
 -- Khoản chi thực tế, có thể gắn với quà hoặc lần diễn ra.
 CREATE TABLE expenses (
-    local_id TEXT NOT NULL PRIMARY KEY,
+    local_id INTEGER PRIMARY KEY AUTOINCREMENT CHECK (local_id > 0),
     server_id TEXT UNIQUE,
     server_version INTEGER CHECK (server_version >= 1),
-    gift_id TEXT REFERENCES gifts(local_id) ON DELETE CASCADE,
-    occurrence_id TEXT REFERENCES event_occurrences(local_id) ON DELETE SET NULL,
+    gift_id INTEGER REFERENCES gifts(local_id) ON DELETE CASCADE,
+    occurrence_id INTEGER REFERENCES event_occurrences(local_id) ON DELETE SET NULL,
     expense_type TEXT NOT NULL CHECK (expense_type IN ('GIFT', 'SHIPPING', 'WRAPPING', 'OTHER')),
     amount_x100 INTEGER NOT NULL CHECK (amount_x100 BETWEEN 0 AND 999999999999999999),
     currency TEXT NOT NULL DEFAULT 'VND' CHECK (currency GLOB '[A-Z][A-Z][A-Z]'),
@@ -319,7 +324,6 @@ CREATE TABLE expenses (
     deleted_at TEXT,
     local_rev INTEGER NOT NULL DEFAULT 1 CHECK (local_rev >= 1),
     acked_local_rev INTEGER NOT NULL DEFAULT 0 CHECK (acked_local_rev BETWEEN 0 AND local_rev),
-    CHECK (length(local_id) = 36 AND local_id GLOB '????????-????-????-????-????????????' AND length(replace(local_id, '-', '')) = 32 AND replace(local_id, '-', '') NOT GLOB '*[^0-9a-f]*'),
     CHECK (server_id IS NULL OR (server_id NOT GLOB '*[^0-9]*' AND substr(server_id, 1, 1) BETWEEN '1' AND '9'
           AND (length(server_id) BETWEEN 1 AND 18 OR (length(server_id) = 19 AND server_id <= '9223372036854775807')))),
     CHECK (server_id IS NOT NULL OR (server_version IS NULL AND acked_local_rev = 0))
@@ -346,9 +350,9 @@ FROM v_actual_expenses WHERE occurrence_id IS NOT NULL GROUP BY occurrence_id, c
 
 -- Checklist lưu trên máy theo lần diễn ra, giữ được khi xóa liên kết với quà.
 CREATE TABLE occurrence_tasks (
-    local_id TEXT NOT NULL PRIMARY KEY CHECK (length(local_id) = 36 AND local_id GLOB '????????-????-????-????-????????????' AND length(replace(local_id, '-', '')) = 32 AND replace(local_id, '-', '') NOT GLOB '*[^0-9a-f]*'),
-    occurrence_id TEXT NOT NULL REFERENCES event_occurrences(local_id) ON DELETE CASCADE,
-    gift_id TEXT REFERENCES gifts(local_id) ON DELETE SET NULL,
+    local_id INTEGER PRIMARY KEY AUTOINCREMENT CHECK (local_id > 0),
+    occurrence_id INTEGER NOT NULL REFERENCES event_occurrences(local_id) ON DELETE CASCADE,
+    gift_id INTEGER REFERENCES gifts(local_id) ON DELETE SET NULL,
     title TEXT NOT NULL CHECK (length(trim(title)) BETWEEN 1 AND 200),
     due_on TEXT CHECK (due_on IS NULL OR (due_on IS date(due_on, '+0 days') AND length(due_on) = 10)),
     completed_at TEXT,
@@ -359,7 +363,7 @@ CREATE INDEX ix_tasks_occurrence ON occurrence_tasks(occurrence_id);
 -- Bản nháp và cache chỉ thuộc file hồ sơ hiện tại, dùng được trước khi đăng nhập.
 CREATE TABLE draft_preferences (
     id INTEGER PRIMARY KEY,
-    recipient_id TEXT NOT NULL REFERENCES recipients(local_id) ON DELETE CASCADE,
+    recipient_id INTEGER NOT NULL REFERENCES recipients(local_id) ON DELETE CASCADE,
     category TEXT NOT NULL CHECK (length(trim(category)) BETWEEN 1 AND 80),
     value TEXT NOT NULL CHECK (length(trim(value)) BETWEEN 1 AND 200),
     polarity TEXT NOT NULL CHECK (polarity IN ('LIKE', 'DISLIKE', 'AVOID')),
@@ -369,8 +373,8 @@ CREATE INDEX ix_draft_preferences_recipient ON draft_preferences(recipient_id);
 
 CREATE TABLE ai_draft (
     id INTEGER PRIMARY KEY,
-    recipient_id TEXT REFERENCES recipients(local_id) ON DELETE SET NULL,
-    occurrence_id TEXT REFERENCES event_occurrences(local_id) ON DELETE SET NULL,
+    recipient_id INTEGER REFERENCES recipients(local_id) ON DELETE SET NULL,
+    occurrence_id INTEGER REFERENCES event_occurrences(local_id) ON DELETE SET NULL,
     form_json TEXT NOT NULL CHECK (json_valid(form_json)),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 ) STRICT;
@@ -395,16 +399,16 @@ CREATE TABLE sync_state (
     last_synced_at TEXT
 ) STRICT;
 
--- Phần dự phòng cho đồng bộ có sự đồng ý. Ở giai đoạn CRUD, bảng này trống.
+-- Bảng dự phòng từ v1. Ràng buộc sync_enabled = 0 giữ hàng chờ trống trong GĐ1.
 -- Một snapshot bất biến đang chờ cho mỗi bản ghi. Những lần sửa mới tăng local_rev.
 -- entity_type + local_id là tham chiếu logic đến loại bảng tương ứng, không có FK đa hình.
--- entity_type dùng tên bảng. Các loại trong /auth/sync v1 tương ứng recipients, events, gifts.
+-- entity_type dùng tên bảng nghiệp vụ trên máy.
 -- Khi cập nhật có kiểm tra phiên bản, lấy phiên bản thật của bản ghi đã ánh xạ trước khi gửi.
 CREATE TABLE sync_outbox (
     seq INTEGER PRIMARY KEY,
     mutation_id TEXT NOT NULL UNIQUE CHECK (length(mutation_id) = 36 AND mutation_id GLOB '????????-????-????-????-????????????' AND length(replace(mutation_id, '-', '')) = 32 AND replace(mutation_id, '-', '') NOT GLOB '*[^0-9a-f]*'),
     entity_type TEXT NOT NULL CHECK (entity_type IN ('recipients', 'recipient_preferences', 'events', 'event_occurrences', 'reminder_rules', 'gifts', 'budgets', 'expenses')),
-    local_id TEXT NOT NULL CHECK (length(local_id) = 36 AND local_id GLOB '????????-????-????-????-????????????' AND length(replace(local_id, '-', '')) = 32 AND replace(local_id, '-', '') NOT GLOB '*[^0-9a-f]*'),
+    local_id INTEGER NOT NULL CHECK (local_id > 0),
     operation TEXT NOT NULL CHECK (operation IN ('UPSERT', 'DELETE')),
     sent_local_rev INTEGER NOT NULL CHECK (sent_local_rev >= 1),
     base_version INTEGER CHECK (base_version >= 1),
@@ -437,7 +441,7 @@ BEGIN
     WHERE local_id = NEW.local_id;
 END;
 
-CREATE TRIGGER recipients_keep_ids BEFORE UPDATE OF local_id, server_id, server_version, acked_local_rev ON recipients
+CREATE TRIGGER recipients_keep_ids BEFORE UPDATE ON recipients
 WHEN NEW.local_id IS NOT OLD.local_id
   OR (OLD.server_id IS NOT NULL AND NEW.server_id IS NOT OLD.server_id)
   OR (OLD.server_version IS NOT NULL AND (NEW.server_version IS NULL OR NEW.server_version < OLD.server_version))
@@ -466,7 +470,7 @@ BEGIN
     WHERE local_id = NEW.local_id;
 END;
 
-CREATE TRIGGER recipient_preferences_keep_ids BEFORE UPDATE OF local_id, server_id, server_version, acked_local_rev ON recipient_preferences
+CREATE TRIGGER recipient_preferences_keep_ids BEFORE UPDATE ON recipient_preferences
 WHEN NEW.local_id IS NOT OLD.local_id
   OR (OLD.server_id IS NOT NULL AND NEW.server_id IS NOT OLD.server_id)
   OR (OLD.server_version IS NOT NULL AND (NEW.server_version IS NULL OR NEW.server_version < OLD.server_version))
@@ -497,7 +501,7 @@ BEGIN
     WHERE local_id = NEW.local_id;
 END;
 
-CREATE TRIGGER events_keep_ids BEFORE UPDATE OF local_id, server_id, server_version, acked_local_rev ON events
+CREATE TRIGGER events_keep_ids BEFORE UPDATE ON events
 WHEN NEW.local_id IS NOT OLD.local_id
   OR (OLD.server_id IS NOT NULL AND NEW.server_id IS NOT OLD.server_id)
   OR (OLD.server_version IS NOT NULL AND (NEW.server_version IS NULL OR NEW.server_version < OLD.server_version))
@@ -526,7 +530,7 @@ BEGIN
     WHERE local_id = NEW.local_id;
 END;
 
-CREATE TRIGGER event_occurrences_keep_ids BEFORE UPDATE OF local_id, server_id, server_version, acked_local_rev ON event_occurrences
+CREATE TRIGGER event_occurrences_keep_ids BEFORE UPDATE ON event_occurrences
 WHEN NEW.local_id IS NOT OLD.local_id
   OR (OLD.server_id IS NOT NULL AND NEW.server_id IS NOT OLD.server_id)
   OR (OLD.server_version IS NOT NULL AND (NEW.server_version IS NULL OR NEW.server_version < OLD.server_version))
@@ -554,7 +558,7 @@ BEGIN
     WHERE local_id = NEW.local_id;
 END;
 
-CREATE TRIGGER reminder_rules_keep_ids BEFORE UPDATE OF local_id, server_id, server_version, acked_local_rev ON reminder_rules
+CREATE TRIGGER reminder_rules_keep_ids BEFORE UPDATE ON reminder_rules
 WHEN NEW.local_id IS NOT OLD.local_id
   OR (OLD.server_id IS NOT NULL AND NEW.server_id IS NOT OLD.server_id)
   OR (OLD.server_version IS NOT NULL AND (NEW.server_version IS NULL OR NEW.server_version < OLD.server_version))
@@ -577,15 +581,17 @@ END;
 
 CREATE TRIGGER gifts_content_changed AFTER UPDATE OF
     recipient_id, occurrence_id, suggestion_server_id, name, category, source, status,
-    status_changed_at, canonical_key, product_url, image_url, estimated_amount_x100,
+    canonical_key, product_url, image_url, estimated_amount_x100,
     purchased_on, given_on, follow_up_prompted_at, follow_up_dismissed_at, note,
     reaction, deleted_at ON gifts
 BEGIN
-    UPDATE gifts SET local_rev = local_rev + 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    UPDATE gifts SET local_rev = local_rev + 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+        status_changed_at = CASE WHEN NEW.status <> OLD.status THEN strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                                 ELSE NEW.status_changed_at END
     WHERE local_id = NEW.local_id;
 END;
 
-CREATE TRIGGER gifts_keep_ids BEFORE UPDATE OF local_id, server_id, server_version, acked_local_rev ON gifts
+CREATE TRIGGER gifts_keep_ids BEFORE UPDATE ON gifts
 WHEN NEW.local_id IS NOT OLD.local_id
   OR (OLD.server_id IS NOT NULL AND NEW.server_id IS NOT OLD.server_id)
   OR (OLD.server_version IS NOT NULL AND (NEW.server_version IS NULL OR NEW.server_version < OLD.server_version))
@@ -614,7 +620,7 @@ BEGIN
     WHERE local_id = NEW.local_id;
 END;
 
-CREATE TRIGGER budgets_keep_ids BEFORE UPDATE OF local_id, server_id, server_version, acked_local_rev ON budgets
+CREATE TRIGGER budgets_keep_ids BEFORE UPDATE ON budgets
 WHEN NEW.local_id IS NOT OLD.local_id
   OR (OLD.server_id IS NOT NULL AND NEW.server_id IS NOT OLD.server_id)
   OR (OLD.server_version IS NOT NULL AND (NEW.server_version IS NULL OR NEW.server_version < OLD.server_version))
@@ -643,7 +649,7 @@ BEGIN
     WHERE local_id = NEW.local_id;
 END;
 
-CREATE TRIGGER expenses_keep_ids BEFORE UPDATE OF local_id, server_id, server_version, acked_local_rev ON expenses
+CREATE TRIGGER expenses_keep_ids BEFORE UPDATE ON expenses
 WHEN NEW.local_id IS NOT OLD.local_id
   OR (OLD.server_id IS NOT NULL AND NEW.server_id IS NOT OLD.server_id)
   OR (OLD.server_version IS NOT NULL AND (NEW.server_version IS NULL OR NEW.server_version < OLD.server_version))
@@ -818,5 +824,5 @@ BEGIN
     WHERE local_id = OLD.occurrence_id;
 END;
 
-PRAGMA user_version = 1;
-COMMIT;
+PRAGMA user_version = 2;
+RELEASE create_local_schema;

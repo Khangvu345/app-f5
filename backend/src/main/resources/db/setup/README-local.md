@@ -1,6 +1,6 @@
 # SQLite local cho GiftMate
 
-Schema này cho phép mobile lưu người nhận, dịp, mốc nhắc, quà và chi tiêu trong một file SQLite cho mỗi hồ sơ. Khách có thể tạo dữ liệu ngay từ lần mở đầu tiên. Việc gắn tài khoản vào hồ sơ giữ nguyên dữ liệu và trạng thái đồng bộ mặc định tắt.
+Schema này cho phép mobile lưu người nhận, dịp, mốc nhắc, quà và chi tiêu trong một file SQLite cho mỗi hồ sơ. Khách có thể tạo dữ liệu ngay từ lần mở đầu tiên. Việc gắn tài khoản vào hồ sơ giữ nguyên dữ liệu và trạng thái đồng bộ tắt trong GĐ1.
 
 ## 1. Chạy thử trên máy lập trình
 
@@ -22,7 +22,7 @@ sqlite3 -bail "../giftmate-dev.sqlite" ".read backend/src/main/resources/db/setu
 sqlite3 -bail "../giftmate-dev.sqlite" "PRAGMA foreign_keys = ON;" "PRAGMA user_version;" "SELECT slot, server_user_id, sync_enabled FROM local_profile;" "PRAGMA foreign_key_check;"
 ```
 
-File mới có phiên bản `1`. Hàng hồ sơ là `1||0` (`slot = 1`, `server_user_id = NULL`, `sync_enabled = 0`). Kiểm tra khóa ngoại thành công trả về **0 dòng**. Để xem các bảng, chạy `sqlite3 "../giftmate-dev.sqlite" ".tables"`.
+File mới có phiên bản `2`. Hàng hồ sơ là `1||0` (`slot = 1`, `server_user_id = NULL`, `sync_enabled = 0`). Kiểm tra khóa ngoại thành công trả về **0 dòng**. Để xem các bảng, chạy `sqlite3 "../giftmate-dev.sqlite" ".tables"`.
 
 ## 3. Khi tích hợp vào app Expo
 
@@ -41,16 +41,42 @@ Trong component đặt cạnh `giftmate-template.db`, mở file theo hồ sơ b�
   key={profileDbName}
   databaseName={profileDbName}
   assetSource={{ assetId: require('./giftmate-template.db') }}
-  onInit={(db) => db.execAsync('PRAGMA foreign_keys = ON')}
+  onInit={openProfile}
 >
   {children}
 </SQLiteProvider>
 ```
 
-Import `SQLiteProvider` từ `expo-sqlite`. Nếu Metro chưa nhận file `.db`, thêm `db` vào `resolver.assetExts` của cấu hình Metro. Bản mẫu chỉ dùng khi mở một file mới. Khi người dùng khách liên kết tài khoản lần đầu, giữ `profileDbName` và ghi `server_user_id` vào `local_profile`. Khi đổi tài khoản, chọn file của đúng hồ sơ. [Expo SQLite](https://docs.expo.dev/versions/latest/sdk/sqlite/) · [Cấu hình Metro](https://docs.expo.dev/guides/customizing-metro/)
+Hàm `openProfile` của tầng storage bật khóa ngoại và nâng phiên bản theo mục 4 trước khi các màn hình chạy CRUD. Import `SQLiteProvider` từ `expo-sqlite`. Nếu Metro chưa nhận file `.db`, thêm `db` vào `resolver.assetExts` của cấu hình Metro. Bản mẫu chỉ dùng khi mở một file mới. Khi người dùng khách liên kết tài khoản lần đầu, giữ `profileDbName` và ghi `server_user_id` vào `local_profile`. Khi đổi tài khoản, chọn file của đúng hồ sơ. [Expo SQLite](https://docs.expo.dev/versions/latest/sdk/sqlite/) · [Cấu hình Metro](https://docs.expo.dev/guides/customizing-metro/)
 
-## 4. Khi đổi schema
+## 4. Mở và nâng cấp file hồ sơ
 
-**SQLite trên điện thoại không cần Flyway.** Phiên bản nằm ở `PRAGMA user_version`. Ví dụ, khi nâng từ 1 lên 2, app đọc phiên bản lúc mở file, chạy các câu lệnh chuyển đổi trên dữ liệu hiện có và đặt `PRAGMA user_version = 2` trong cùng giao dịch. File mới dùng bản mẫu tương ứng. File đã có dữ liệu được nâng cấp tại chỗ.
+Mỗi kết nối bật `PRAGMA foreign_keys = ON`. Với file trống, khởi tạo từ `03-local.sql` hoặc bản mẫu v2. Với file v2, mở trực tiếp. Với file v1, chạy lần lượt ba script trên **cùng một kết nối riêng** trước khi cho phép CRUD. File có phiên bản mới hơn cần phiên bản ứng dụng tương thích.
 
-**PostgreSQL trên server dùng Flyway.** Khi bổ sung bảng ánh xạ ID hoặc thay đổi schema server, tạo migration `V<n>__<mo_ta>.sql` với số phiên bản kế tiếp trong `db/migration/`. [Hướng dẫn Flyway của dự án](../../../../../../FLYWAY.md)
+```sh
+# Từ backend/src/main/resources/db/setup, trên file hồ sơ v1
+sqlite3 -bail "ho-so.sqlite" ".read 05-chuan-bi-v1.sql" ".read 03-local.sql" ".read 06-khoi-phuc-v2.sql" "PRAGMA user_version;" "PRAGMA foreign_key_check;"
+```
+
+Trong Expo, đọc `user_version` rồi thực thi nội dung SQL theo cùng thứ tự. Script đầu giữ khóa ghi bằng `BEGIN IMMEDIATE` và kiểm tra lại phiên bản. Script giữa dùng savepoint để tạo đúng schema như file mới. Script cuối kiểm tra khóa ngoại trước khi commit. Khi có lỗi, dừng chuỗi lệnh, rollback giao dịch còn mở, bật lại khóa ngoại và đọc lại phiên bản trước khi thử lại. Đóng kết nối giữa chừng cũng rollback toàn bộ. Kết quả thành công là phiên bản 2 và 0 dòng lỗi FK.
+
+Mỗi bảng có ánh xạ UUID cũ sang số nguyên dương riêng. Migration khôi phục cả hai bảng nối, người nhận chính, khóa ngoại tùy chọn, lịch hệ điều hành và lịch sử chi. `legacy_sync_outbox_v1` trên file nâng cấp giữ các snapshot v1 nguyên văn để đối chiếu. Bản ghi nguồn còn tồn tại có thêm `local_id_v2`. Hàng chờ v2 trống và `sync_enabled=0`. Các trường JSON của nháp/cache được bảo toàn nguyên văn. Ứng dụng dùng các cột FK đã chuyển đổi để ghép bản ghi.
+
+## 5. Ánh xạ ERD v2.2 cho giai đoạn 1
+
+| Nhóm dữ liệu trong ERD | Nơi lưu và quan hệ |
+| --- | --- |
+| Tài khoản, xác thực, quyền dịch vụ | PostgreSQL giữ `users`, `refresh_tokens` (hash của token), `user_settings` (tên hiển thị và gói). SQLite giữ một hàng `local_profile` cho mỗi file. `server_user_id` trống khi dùng thử, có giá trị khi liên kết tài khoản. |
+| Người nhận, sở thích | SQLite giữ `recipients` và `recipient_preferences.recipient_id`. Phạm vi sở hữu là file hồ sơ, kể cả trước khi có tài khoản. |
+| Dịp và lần diễn ra | SQLite giữ `events`, `event_recipients`, `event_occurrences` và `occurrence_recipients`. Hai bảng nối dùng khóa chính ghép. FK trì hoãn từ bản ghi cha tới thành viên giữ ít nhất một người nhận khi commit. `local_date` là ngày dương theo múi giờ sự kiện. |
+| Quà, chi phí và ngân sách | SQLite giữ `gifts`, `expenses` và `budgets`. FK `occurrence_id` chỉ một lần diễn ra. Tổng năm và tổng theo dịp lấy từ ba view thực chi. Giá dự kiến thuộc món quà. |
+| Quy tắc và lịch nhắc | SQLite giữ `reminder_rules` và `notification_schedules`. Mỗi cặp `(occurrence_id, days_before)` ứng với tối đa một lịch, `local_notification_id` là chuỗi do hệ điều hành cấp. GĐ1 hẹn trực tiếp trên thiết bị. |
+| Tùy chọn, checklist và hạn mức thử | Tùy chọn lịch, hiển thị và đơn vị của hồ sơ nằm trong `app_settings_local`. Checklist dùng `occurrence_tasks`. Bộ đếm khách thuộc bản cài, do #10 quản lý bên ngoài file hồ sơ. |
+
+`02-server.sql` là **thiết kế PostgreSQL GĐ1 cho database thử trống**. Chạy `04-kiem-tra-server.sql` để kiểm tra phạm vi bảng, quyền gói và phiên. Backend đang chạy dùng Flyway trong `db/migration/`. Bản thiết kế ERD server 19 bảng ban đầu có trong [lịch sử của repo](https://github.com/Khangvu345/app-f5/blob/70711a2343c11cb9892bdaa0220d5a19558a9f39/backend/src/main/resources/db/setup/02-server.sql). GĐ2 sẽ chốt riêng thiết kế dữ liệu AI và hạn mức dịch vụ.
+
+### Quy ước giao ID, ngày và tiền
+
+- `id BIGINT IDENTITY` của thực thể trong ERD ánh xạ sang `local_id INTEGER PRIMARY KEY` trong bảng SQLite `STRICT`. SQLite tự cấp ID dương theo từng bảng và file. Khi ghép hai hồ sơ, TV1/TV2 ánh xạ từng khóa nguồn sang khóa đích, gồm cả các khóa trong bảng nối và lịch. Dùng mã thao tác ổn định để thử lại sau gián đoạn.
+- Ở biên SQLite/JavaScript và JSON xuất từ thiết bị, dùng chuỗi thập phân cho ID 64 bit. Ví dụ, đọc `CAST(local_id AS TEXT) AS local_id`, bind chuỗi ID vào truy vấn tham số. Khi tạo mới, dùng `INSERT ... RETURNING CAST(local_id AS TEXT) AS local_id`. Để SQLite tính số nguyên chính xác thay vì truyền qua JavaScript `Number`. ID tài khoản qua API cũng dùng chuỗi. ID hệ điều hành và mã thao tác là các giá trị độc lập với khóa nghiệp vụ.
+- `NUMERIC(18,2)` ánh xạ sang `INTEGER` với hậu tố `_x100`. Ví dụ 320.000 VND lưu bằng 32000000. Ngày dùng `TEXT` dạng YYYY-MM-DD, thời điểm dùng UTC ISO 8601, múi giờ lưu theo tên IANA. Boolean dùng `INTEGER` với `CHECK (... IN (0,1))`.

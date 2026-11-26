@@ -1,85 +1,37 @@
+-- Chạy sau 02-server.sql. Toàn bộ dữ liệu thử nằm trong giao dịch được rollback.
 BEGIN;
-
 DO $$
 DECLARE
-    owner_id bigint;
-    person_id bigint;
-    occasion_id bigint;
-    instance_id bigint;
-    gift_id_to_test bigint;
-    total numeric;
+    account_id bigint;
+    oauth_id bigint;
+    tables text[];
 BEGIN
-    IF (SELECT count(*) FROM information_schema.tables
-        WHERE table_schema = 'giftmate' AND table_type = 'BASE TABLE') <> 19
-       OR (SELECT count(*) FROM information_schema.columns c
-           JOIN information_schema.tables t USING (table_schema, table_name)
-           WHERE c.table_schema = 'giftmate' AND t.table_type = 'BASE TABLE') <> 213
-       OR (SELECT count(*) FROM information_schema.table_constraints
-           WHERE table_schema = 'giftmate' AND constraint_type = 'FOREIGN KEY') <> 30
-       OR (SELECT count(*) FROM information_schema.views WHERE table_schema = 'giftmate') <> 3
-    THEN
-        RAISE EXCEPTION 'Unexpected GiftMate server schema counts';
+    SELECT array_agg(table_name::text ORDER BY table_name) INTO tables
+    FROM information_schema.tables WHERE table_schema = 'giftmate' AND table_type = 'BASE TABLE';
+    IF tables IS DISTINCT FROM ARRAY['refresh_tokens', 'user_settings', 'users'] THEN
+        RAISE EXCEPTION 'Sai phạm vi bảng PostgreSQL giai đoạn 1: %', tables;
     END IF;
 
-    INSERT INTO giftmate.users DEFAULT VALUES RETURNING id INTO owner_id;
-    INSERT INTO giftmate.recipients (user_id, name)
-    VALUES (owner_id, 'Smoke test recipient') RETURNING id INTO person_id;
-
-    BEGIN
-        INSERT INTO giftmate.events (user_id, title, event_type, original_day, original_month)
-        VALUES (owner_id, 'Missing recipient', 'BIRTHDAY', 10, 5);
-        SET CONSTRAINTS ALL IMMEDIATE;
-        RAISE EXCEPTION 'An event without a recipient was accepted';
-    EXCEPTION WHEN check_violation THEN
-        NULL;
-    END;
-
-    INSERT INTO giftmate.events (user_id, title, event_type, original_day, original_month)
-    VALUES (owner_id, 'Smoke test event', 'BIRTHDAY', 10, 5) RETURNING id INTO occasion_id;
-    INSERT INTO giftmate.event_recipients (event_id, recipient_id) VALUES (occasion_id, person_id);
-    INSERT INTO giftmate.event_occurrences (event_id, local_date)
-    VALUES (occasion_id, DATE '2026-05-10') RETURNING id INTO instance_id;
-    INSERT INTO giftmate.occurrence_recipients (occurrence_id, recipient_id)
-    VALUES (instance_id, person_id);
-    SET CONSTRAINTS ALL IMMEDIATE;
-
-    BEGIN
-        DELETE FROM giftmate.occurrence_recipients WHERE occurrence_id = instance_id;
-        RAISE EXCEPTION 'The last occurrence recipient was removed';
-    EXCEPTION WHEN check_violation THEN
-        NULL;
-    END;
-
-    INSERT INTO giftmate.gifts (user_id, recipient_id, occurrence_id, name, estimated_amount)
-    VALUES (owner_id, person_id, instance_id, 'Smoke test gift', 999)
-    RETURNING id INTO gift_id_to_test;
-
-    BEGIN
-        UPDATE giftmate.gifts SET status = 'GIVEN' WHERE id = gift_id_to_test;
-        RAISE EXCEPTION 'Invalid gift status transition was accepted';
-    EXCEPTION WHEN check_violation THEN
-        NULL;
-    END;
-
-    UPDATE giftmate.gifts SET status = 'SELECTED' WHERE id = gift_id_to_test;
-    UPDATE giftmate.gifts SET status = 'PURCHASED', purchased_on = DATE '2026-05-08'
-    WHERE id = gift_id_to_test;
-
-    INSERT INTO giftmate.expenses (user_id, gift_id, occurrence_id, expense_type, amount, occurred_at)
-    VALUES (owner_id, gift_id_to_test, instance_id, 'GIFT', 100, DATE '2026-05-08'),
-           (owner_id, gift_id_to_test, instance_id, 'SHIPPING', 20, DATE '2026-05-08');
-    SELECT actual_spend INTO total FROM giftmate.v_occurrence_spend
-    WHERE occurrence_id = instance_id AND currency = 'VND';
-    IF total IS DISTINCT FROM 120 THEN
-        RAISE EXCEPTION 'Expected actual spend 120 VND, got %', total;
+    INSERT INTO giftmate.users (email, password_hash, auth_provider)
+    VALUES ('demo@example.test', 'example-digest', 'EMAIL') RETURNING id INTO account_id;
+    INSERT INTO giftmate.user_settings (user_id, display_name) VALUES (account_id, 'An');
+    IF (SELECT plan_type FROM giftmate.user_settings WHERE user_id = account_id) IS DISTINCT FROM 'FREE' THEN
+        RAISE EXCEPTION 'Tài khoản mới phải có quyền Free';
     END IF;
+    UPDATE giftmate.user_settings SET plan_type = 'PREMIUM' WHERE user_id = account_id;
+    INSERT INTO giftmate.refresh_tokens (user_id, token_hash, expires_at)
+    VALUES (account_id, 'example-token-digest', now() + interval '30 days');
+    UPDATE giftmate.refresh_tokens SET revoked_at = now() WHERE user_id = account_id;
 
-    UPDATE giftmate.gifts SET status = 'RETURNED' WHERE id = gift_id_to_test;
-    IF EXISTS (SELECT 1 FROM giftmate.v_occurrence_spend WHERE occurrence_id = instance_id) THEN
-        RAISE EXCEPTION 'Returned gift was counted in actual spend';
+    INSERT INTO giftmate.users (auth_provider, provider_subject)
+    VALUES ('APPLE', 'example-subject') RETURNING id INTO oauth_id;
+    DELETE FROM giftmate.users WHERE id = account_id;
+    IF EXISTS (SELECT 1 FROM giftmate.refresh_tokens WHERE user_id = account_id)
+        OR EXISTS (SELECT 1 FROM giftmate.user_settings WHERE user_id = account_id)
+        OR NOT EXISTS (SELECT 1 FROM giftmate.users WHERE id = oauth_id) THEN
+        RAISE EXCEPTION 'Xóa tài khoản ảnh hưởng sai phạm vi';
     END IF;
 END;
 $$;
-
 ROLLBACK;
-SELECT 'GiftMate server smoke test passed.' AS result;
+SELECT 'Đạt kiểm tra PostgreSQL giai đoạn 1.' AS ket_qua;

@@ -192,7 +192,9 @@ paths:
       summary: Đồng bộ dữ liệu Guest lên cloud (dự kiến)
       description: >
         Dự kiến cho cloud về sau, ngoài đường chạy đăng nhập MVP và chưa triển khai.
-        MVP chỉ liên kết hoặc gộp hồ sơ SQLite trên cùng máy, không tải dữ liệu quà lên server.
+        MVP liên kết hoặc gộp hồ sơ SQLite v2 trên cùng máy, không tải dữ liệu quà lên server.
+        ID số nguyên 64 bit do SQLite cấp chỉ có nghĩa trong từng bảng của từng file.
+        Khi nhập hồ sơ, mobile tự ánh xạ khóa và các tham chiếu.
         UC-01 (D6). Sau khi Guest đăng ký/đăng nhập, gom dữ liệu cục bộ (người nhận,
         sự kiện, quà) gộp vào tài khoản. Server nhận diện bản ghi theo tài khoản, entityType và localId. Gửi lại trả cùng serverId. Chỉ nhận dữ liệu của chính
         user đang đăng nhập.

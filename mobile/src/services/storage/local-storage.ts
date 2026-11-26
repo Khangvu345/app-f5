@@ -8,34 +8,17 @@ import type {
   TrialKind,
 } from '@/types/local-storage';
 
-import { LOCAL_SCHEMA } from './local-schema';
+import {
+  LOCAL_MIGRATION_PREPARE_V1,
+  LOCAL_MIGRATION_RESTORE_V2,
+  LOCAL_SCHEMA,
+} from './local-schema';
+import { mergeProfiles } from './profile-merge';
 
 export type { LocalProfile } from '@/types/local-storage';
 
 const REGISTRY = 'giftmate-installation.db';
 const LIMITS: Record<TrialKind, number> = { recipient: 2, event: 3, reminder: 3, idea: 5 };
-const TABLES = [
-  'app_settings_local',
-  'recipients',
-  'recipient_preferences',
-  'event_recipients',
-  'events',
-  'occurrence_recipients',
-  'event_occurrences',
-  'reminder_rules',
-  'notification_schedules',
-  'gifts',
-  'budgets',
-  'expenses',
-  'occurrence_tasks',
-  'draft_preferences',
-  'ai_draft',
-  'ai_cache',
-  'image_cache',
-  'sync_state',
-  'sync_outbox',
-];
-
 async function registry(): Promise<SQLite.SQLiteDatabase> {
   const db = await SQLite.openDatabaseAsync(REGISTRY, { useNewConnection: true });
   await db.execAsync(`PRAGMA busy_timeout=10000; PRAGMA journal_mode=DELETE; PRAGMA foreign_keys=ON;
@@ -63,22 +46,48 @@ function validOwner(owner: string): void {
     throw new Error('Invalid account ID');
   }
 }
-async function initialize(id: number): Promise<void> {
+class OccupiedProfileFileError extends Error {}
+
+async function initialize(
+  id: number,
+  expectedOwner?: string | null,
+  allowExisting = true,
+): Promise<void> {
   const db = await SQLite.openDatabaseAsync(name(id), { useNewConnection: true });
   try {
     await db.execAsync(
       'PRAGMA busy_timeout=10000; PRAGMA journal_mode=DELETE; PRAGMA foreign_keys=ON',
     );
     const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-    if (version?.user_version === 0) {
+    if (!allowExisting && version?.user_version !== 0) {
+      throw new OccupiedProfileFileError('Profile file already exists without a registry entry');
+    }
+    if (
+      expectedOwner !== undefined &&
+      (version?.user_version === 1 || version?.user_version === 2)
+    ) {
+      const profile = await db.getFirstAsync<{ server_user_id: string | null }>(
+        'SELECT server_user_id FROM local_profile WHERE slot=1',
+      );
+      if (!profile || profile.server_user_id !== expectedOwner) {
+        throw new Error('Profile owner does not match registry');
+      }
+    } else if (expectedOwner && version?.user_version === 0) {
+      throw new Error('Account profile file is missing');
+    }
+    if (version?.user_version === 0 || version?.user_version === 1) {
       try {
+        if (version.user_version === 1) await db.execAsync(LOCAL_MIGRATION_PREPARE_V1);
         await db.execAsync(LOCAL_SCHEMA);
+        if (version.user_version === 1) await db.execAsync(LOCAL_MIGRATION_RESTORE_V2);
       } catch (error) {
         await db.execAsync('ROLLBACK').catch(() => undefined);
+        await db.execAsync('PRAGMA foreign_keys=ON');
         const current = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-        if (current?.user_version !== 1) throw error;
+        // Another opener may have completed the same upgrade while this connection waited.
+        if (current?.user_version !== 2) throw error;
       }
-    } else if (version?.user_version !== 1) throw new Error('Unsupported profile schema');
+    } else if (version?.user_version !== 2) throw new Error('Unsupported profile schema');
   } finally {
     await db.closeAsync();
   }
@@ -111,14 +120,24 @@ export async function openGuestProfile(): Promise<LocalProfile> {
   const db = await registry();
   try {
     const id = await tx(db, async () => {
-      let row = await db.getFirstAsync<{ id: number }>('SELECT id FROM profiles WHERE is_guest=1');
+      const row = await db.getFirstAsync<{ id: number }>(
+        'SELECT id FROM profiles WHERE is_guest=1',
+      );
       if (!row) {
-        const result = await db.runAsync('INSERT INTO profiles(is_guest) VALUES(1)');
-        row = { id: result.lastInsertRowId };
+        for (;;) {
+          const result = await db.runAsync('INSERT INTO profiles(is_guest) VALUES(1)');
+          try {
+            await initialize(result.lastInsertRowId, null, false);
+            return result.lastInsertRowId;
+          } catch (error) {
+            if (!(error instanceof OccupiedProfileFileError)) throw error;
+            await db.runAsync('DELETE FROM profiles WHERE id=?', result.lastInsertRowId);
+          }
+        }
       }
+      await initialize(row.id, null);
       return row.id;
     });
-    await initialize(id);
     return { dbName: name(id), serverUserId: null };
   } finally {
     await db.closeAsync();
@@ -133,7 +152,7 @@ export async function openAccountProfile(serverUserId: string): Promise<LocalPro
       serverUserId,
     );
     if (!row) throw new Error('Account profile not found');
-    await initialize(row.id);
+    await initialize(row.id, serverUserId);
     return { dbName: name(row.id), serverUserId };
   } finally {
     await db.closeAsync();
@@ -180,7 +199,7 @@ export async function linkGuestProfile(
     );
     await attach(db, sourceId, 'source');
     if (existing && existing.id !== sourceId) {
-      await initialize(existing.id);
+      await initialize(existing.id, serverUserId);
       await attach(db, existing.id, 'target');
     }
     return await tx(db, async () => {
@@ -196,6 +215,20 @@ export async function linkGuestProfile(
         (account && account.id !== existing?.id)
       ) {
         throw new Error('Profile changed; retry');
+      }
+      const sourceOwner = await db.getFirstAsync<{ server_user_id: string | null }>(
+        'SELECT server_user_id FROM source.local_profile WHERE slot=1',
+      );
+      if (!sourceOwner || sourceOwner.server_user_id !== null) {
+        throw new Error('Guest profile owner does not match registry');
+      }
+      if (account) {
+        const targetOwner = await db.getFirstAsync<{ server_user_id: string | null }>(
+          'SELECT server_user_id FROM target.local_profile WHERE slot=1',
+        );
+        if (!targetOwner || targetOwner.server_user_id !== serverUserId) {
+          throw new Error('Account profile owner does not match registry');
+        }
       }
       const pendingReminder = await db.getFirstAsync(
         "SELECT 1 FROM operations WHERE profile_id=? AND kind='reminder' AND state='pending'",
@@ -221,25 +254,7 @@ export async function linkGuestProfile(
         await db.runAsync('DELETE FROM link_intents WHERE source_id=?', sourceId);
         return { dbName: name(sourceId), serverUserId };
       }
-      // Deferred foreign keys permit membership rows before their parent. This also avoids
-      // membership triggers changing imported parent revisions during the copy.
-      await db.execAsync('PRAGMA defer_foreign_keys=ON');
-      for (const table of TABLES) {
-        const columns = await db.getAllAsync<{ name: string }>(
-          `PRAGMA source.table_info(${table})`,
-        );
-        const names = columns.map((column) => `"${column.name}"`).join(',');
-        await db.execAsync(
-          `INSERT OR IGNORE INTO target.${table} (${names}) SELECT ${names} FROM source.${table}`,
-        );
-        // A matching key alone is insufficient: a different source row must not disappear.
-        const missing = await db.getFirstAsync<{ count: number }>(
-          `SELECT count(*) AS count FROM (SELECT ${names} FROM source.${table} EXCEPT SELECT ${names} FROM target.${table})`,
-        );
-        if (missing?.count) throw new Error(`Profile merge conflict in ${table}`);
-      }
-      const violations = await db.getAllAsync('PRAGMA target.foreign_key_check');
-      if (violations.length) throw new Error('Profile merge has invalid foreign keys');
+      await mergeProfiles(db, sourceId, account.id);
       await db.runAsync(
         'UPDATE operations SET profile_id=? WHERE profile_id=?',
         account.id,

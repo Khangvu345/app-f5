@@ -18,6 +18,10 @@ import {
 
 jest.setTimeout(30000);
 
+// Jest permits mock-prefixed variables in the hoisted module factory.
+// eslint-disable-next-line @typescript-eslint/naming-convention
+let mockShouldFailMergeCommit = false;
+
 const mockDirectory = mkdtempSync(mockJoin(tmpdir(), 'giftmate-sqlite-'));
 
 jest.mock('expo-sqlite', () => ({
@@ -44,6 +48,7 @@ jest.mock('expo-sqlite', () => ({
     `,
       { eval: true, workerData: mockJoin(mockDirectory, name) },
     );
+    let isTargetAttached = false;
     let next = 0;
     const pending = new Map<
       number,
@@ -57,6 +62,17 @@ jest.mock('expo-sqlite', () => ({
     });
     const call = (action: string, sql = '', params: (string | number | null)[] = []) =>
       new Promise<unknown>((resolve, reject) => {
+        if (action === 'run' && /ATTACH DATABASE .* AS target/i.test(sql)) isTargetAttached = true;
+        if (
+          action === 'exec' &&
+          sql === 'COMMIT' &&
+          isTargetAttached &&
+          mockShouldFailMergeCommit
+        ) {
+          mockShouldFailMergeCommit = false;
+          reject(new Error('injected merge commit failure'));
+          return;
+        }
         const id = next++;
         pending.set(id, { resolve, reject });
         worker.postMessage({ id, action, sql, params });
@@ -76,6 +92,7 @@ jest.mock('expo-sqlite', () => ({
 }));
 
 beforeEach(() => {
+  mockShouldFailMergeCommit = false;
   for (const file of readdirSync(mockDirectory)) {
     rmSync(mockJoin(mockDirectory, file), { force: true });
   }
@@ -87,7 +104,7 @@ const recipient = (id: string) => ({
   sql: "INSERT INTO profile.recipients(local_id,name,relationship) VALUES(?,?,'FRIEND')",
   params: [id, 'Friend'],
 });
-const uuid = (n: number) => `00000000-0000-0000-0000-${String(n).padStart(12, '0')}`;
+const id = (n: number) => String(n);
 
 test('quota, idempotence, rollback, and cross-file profile merge use real SQLite', async () => {
   const guest = await openGuestProfile();
@@ -96,7 +113,7 @@ test('quota, idempotence, rollback, and cross-file profile merge use real SQLite
       profile: guest,
       kind: 'recipient',
       operationId: `r${n}`,
-      statements: [recipient(uuid(n))],
+      statements: [recipient(id(n))],
     });
   expect(
     await create(1).catch((e) => {
@@ -109,7 +126,7 @@ test('quota, idempotence, rollback, and cross-file profile merge use real SQLite
       profile: guest,
       kind: 'recipient',
       operationId: 'bad',
-      statements: [recipient(uuid(2)), recipient(uuid(2))],
+      statements: [recipient(id(2)), recipient(id(2))],
     }),
   ).rejects.toThrow();
   expect((await getTrialUsage()).recipient).toBe(1);
@@ -118,14 +135,14 @@ test('quota, idempotence, rollback, and cross-file profile merge use real SQLite
   const guest2 = await openGuestProfile();
   const source = new MockDatabaseSync(mockJoin(mockDirectory, guest2.dbName));
   source.exec(`PRAGMA foreign_keys=ON; BEGIN;
-    INSERT INTO recipients(local_id,name,relationship) VALUES ('${uuid(10)}','Second','FAMILY');
-    INSERT INTO events(local_id,anchor_recipient_id,title,event_type,original_day,original_month) VALUES ('${uuid(11)}','${uuid(10)}','Birthday','BIRTHDAY',1,1);
-    INSERT INTO event_recipients(event_id,recipient_id) VALUES ('${uuid(11)}','${uuid(10)}');
-    INSERT INTO event_occurrences(local_id,event_id,anchor_recipient_id,local_date) VALUES ('${uuid(12)}','${uuid(11)}','${uuid(10)}','2027-01-01');
-    INSERT INTO occurrence_recipients(occurrence_id,recipient_id) VALUES ('${uuid(12)}','${uuid(10)}');
-    INSERT INTO reminder_rules(local_id,event_id,days_before) VALUES ('${uuid(13)}','${uuid(11)}',1);
-    INSERT INTO notification_schedules(occurrence_id,days_before,event_id,scheduled_at,local_notification_id,status) VALUES ('${uuid(12)}',1,'${uuid(11)}','2026-12-31T09:00:00Z','os-123','SCHEDULED');
-    INSERT INTO gifts(local_id,recipient_id,name) VALUES ('${uuid(14)}','${uuid(10)}','Gift'); COMMIT;`);
+    INSERT INTO recipients(local_id,name,relationship) VALUES ('${id(10)}','Second','FAMILY');
+    INSERT INTO events(local_id,anchor_recipient_id,title,event_type,original_day,original_month) VALUES ('${id(11)}','${id(10)}','Birthday','BIRTHDAY',1,1);
+    INSERT INTO event_recipients(event_id,recipient_id) VALUES ('${id(11)}','${id(10)}');
+    INSERT INTO event_occurrences(local_id,event_id,anchor_recipient_id,local_date) VALUES ('${id(12)}','${id(11)}','${id(10)}','2027-01-01');
+    INSERT INTO occurrence_recipients(occurrence_id,recipient_id) VALUES ('${id(12)}','${id(10)}');
+    INSERT INTO reminder_rules(local_id,event_id,days_before) VALUES ('${id(13)}','${id(11)}',1);
+    INSERT INTO notification_schedules(occurrence_id,days_before,event_id,scheduled_at,local_notification_id,status) VALUES ('${id(12)}',1,'${id(11)}','2026-12-31T09:00:00Z','os-123','SCHEDULED');
+    INSERT INTO gifts(local_id,recipient_id,name) VALUES ('${id(14)}','${id(10)}','Gift'); COMMIT;`);
   source.close();
   const reminder = {
     profile: guest2,
@@ -134,7 +151,7 @@ test('quota, idempotence, rollback, and cross-file profile merge use real SQLite
     statements: [
       {
         sql: 'INSERT INTO profile.reminder_rules(local_id,event_id,days_before) VALUES(?,?,?)',
-        params: [uuid(15), uuid(11), 3],
+        params: [id(15), id(11), 3],
       },
     ],
   };
@@ -158,32 +175,6 @@ test('quota, idempotence, rollback, and cross-file profile merge use real SQLite
   await reconcileReminders(scheduler);
   expect(await scheduleReminder(reminder, scheduler)).toBe('already-created');
   expect((await getTrialUsage()).reminder).toBe(1);
-  // Simulate a prior complete import with the same rows and OS notification ID.
-  const preexisting = new MockDatabaseSync(mockJoin(mockDirectory, account.dbName));
-  preexisting.exec('PRAGMA foreign_keys=ON');
-  preexisting.prepare('ATTACH DATABASE ? AS source').run(mockJoin(mockDirectory, guest2.dbName));
-  preexisting.exec('BEGIN; PRAGMA defer_foreign_keys=ON');
-  for (const table of [
-    'recipients',
-    'event_recipients',
-    'events',
-    'occurrence_recipients',
-    'event_occurrences',
-    'reminder_rules',
-    'notification_schedules',
-    'gifts',
-  ]) {
-    const columns = preexisting
-      .prepare(`PRAGMA source.table_info(${table})`)
-      .all()
-      .map((row) => `"${row.name}"`)
-      .join(',');
-    preexisting.exec(
-      `INSERT INTO main.${table} (${columns}) SELECT ${columns} FROM source.${table}`,
-    );
-  }
-  preexisting.exec('COMMIT');
-  preexisting.close();
   expect((await linkGuestProfile('9007199254740993', guest2)).dbName).toBe(account.dbName);
   const freshGuest = await openGuestProfile();
   expect((await linkGuestProfile('9007199254740993', guest2)).dbName).toBe(account.dbName);
@@ -208,7 +199,7 @@ test('event, idea and reminder trial boundaries, races and compensation', async 
   const profile = await openGuestProfile();
   const source = new MockDatabaseSync(mockJoin(mockDirectory, profile.dbName));
   source.exec(
-    `INSERT INTO recipients(local_id,name,relationship) VALUES ('${uuid(100)}','Seed','FRIEND')`,
+    `INSERT INTO recipients(local_id,name,relationship) VALUES ('${id(100)}','Seed','FRIEND')`,
   );
   source.close();
   const event = (n: number) =>
@@ -219,11 +210,11 @@ test('event, idea and reminder trial boundaries, races and compensation', async 
       statements: [
         {
           sql: "INSERT INTO profile.events(local_id,anchor_recipient_id,title,event_type,original_day,original_month) VALUES(?,?,'Event','BIRTHDAY',1,1)",
-          params: [uuid(n), uuid(100)],
+          params: [id(n), id(100)],
         },
         {
           sql: 'INSERT INTO profile.event_recipients(event_id,recipient_id) VALUES(?,?)',
-          params: [uuid(n), uuid(100)],
+          params: [id(n), id(100)],
         },
       ],
     });
@@ -243,7 +234,7 @@ test('event, idea and reminder trial boundaries, races and compensation', async 
       statements: [
         {
           sql: "INSERT INTO profile.gifts(local_id,recipient_id,name) VALUES(?,?,'Gift')",
-          params: [uuid(n), uuid(100)],
+          params: [id(n), id(100)],
         },
       ],
     });
@@ -259,14 +250,14 @@ test('event, idea and reminder trial boundaries, races and compensation', async 
     statements: [
       {
         sql: 'INSERT INTO profile.reminder_rules(local_id,event_id,days_before) VALUES(?,?,?)',
-        params: [uuid(n), uuid(101), days],
+        params: [id(n), id(101), days],
       },
     ],
   });
   const failed = reminder(120, 7);
   failed.statements.push({
     sql: 'INSERT INTO profile.reminder_rules(local_id,event_id,days_before) VALUES(?,?,?)',
-    params: [uuid(120), uuid(101), 7],
+    params: [id(120), id(101), 7],
   });
   await expect(scheduleReminder(failed, scheduler)).rejects.toThrow();
   expect((await getTrialUsage()).reminder).toBe(0);
@@ -309,7 +300,7 @@ test('process crash during attached database transaction leaves no partial recor
     db.prepare("INSERT INTO operations(operation_id,kind,profile_id,state,charged) VALUES('crash-op','recipient',(SELECT id FROM profiles WHERE is_guest=1),'confirmed',1)").run();
     process.kill(process.pid, 'SIGKILL');
   `;
-  const child = spawnSync(process.execPath, ['-e', script, registry, file, uuid(200)]);
+  const child = spawnSync(process.execPath, ['-e', script, registry, file, id(200)]);
   expect(child.signal).toBe('SIGKILL');
   expect((await getTrialUsage()).recipient).toBe(0);
   const db = new MockDatabaseSync(file);
@@ -325,7 +316,7 @@ test('account A and B reopen separate profiles while installation usage persists
       profile: guestA,
       kind: 'recipient',
       operationId: 'account-a-recipient',
-      statements: [recipient(uuid(301))],
+      statements: [recipient(id(301))],
     }),
   ).toBe('created');
   const accountA = await linkGuestProfile('1001', guestA);
@@ -335,7 +326,7 @@ test('account A and B reopen separate profiles while installation usage persists
       profile: guestB,
       kind: 'recipient',
       operationId: 'account-b-recipient',
-      statements: [recipient(uuid(302))],
+      statements: [recipient(id(302))],
     }),
   ).toBe('created');
   const accountB = await linkGuestProfile('1002', guestB);
@@ -346,16 +337,16 @@ test('account A and B reopen separate profiles while installation usage persists
   const dbB = new MockDatabaseSync(mockJoin(mockDirectory, accountB.dbName));
   expect(
     dbA
-      .prepare('SELECT local_id FROM recipients')
+      .prepare('SELECT CAST(local_id AS TEXT) AS local_id FROM recipients')
       .all()
       .map((row) => row.local_id),
-  ).toEqual([uuid(301)]);
+  ).toEqual([id(301)]);
   expect(
     dbB
-      .prepare('SELECT local_id FROM recipients')
+      .prepare('SELECT CAST(local_id AS TEXT) AS local_id FROM recipients')
       .all()
       .map((row) => row.local_id),
-  ).toEqual([uuid(302)]);
+  ).toEqual([id(302)]);
   dbA.close();
   dbB.close();
   const nextGuest = await openGuestProfile();
@@ -365,37 +356,110 @@ test('account A and B reopen separate profiles while installation usage persists
       profile: nextGuest,
       kind: 'recipient',
       operationId: 'third-recipient',
-      statements: [recipient(uuid(303))],
+      statements: [recipient(id(303))],
     }),
   ).toBe('limit-reached');
 });
 
-test('same key with differing source data aborts merge without losing either row', async () => {
+test('colliding 64-bit IDs remap relationships and survive interrupted merge', async () => {
   const original = await openGuestProfile();
-  const first = new MockDatabaseSync(mockJoin(mockDirectory, original.dbName));
-  first
-    .prepare(
-      "INSERT INTO recipients(local_id,name,relationship) VALUES(?, 'Account value', 'FRIEND')",
-    )
-    .run(uuid(400));
-  first.close();
-  const account = await linkGuestProfile('4001', original);
+  const seed = (file: string, person: string, osId: string) => {
+    const db = new MockDatabaseSync(mockJoin(mockDirectory, file));
+    db.exec(`PRAGMA foreign_keys=ON; BEGIN;
+      INSERT INTO recipients(local_id,name,relationship) VALUES(1,'${person}','FRIEND');
+      INSERT INTO events(local_id,anchor_recipient_id,title,event_type,original_day,original_month)
+        VALUES(9007199254740993,1,'${person} event','BIRTHDAY',1,1);
+      INSERT INTO event_recipients(event_id,recipient_id) VALUES(9007199254740993,1);
+      INSERT INTO event_occurrences(local_id,event_id,anchor_recipient_id,local_date)
+        VALUES(9007199254740993,9007199254740993,1,'2027-01-01');
+      INSERT INTO occurrence_recipients(occurrence_id,recipient_id) VALUES(9007199254740993,1);
+      INSERT INTO reminder_rules(local_id,event_id,days_before) VALUES(9007199254740993,9007199254740993,1);
+      INSERT INTO notification_schedules(occurrence_id,days_before,event_id,scheduled_at,local_notification_id,status)
+        VALUES(9007199254740993,1,9007199254740993,'2026-12-31T09:00:00Z','${osId}','SCHEDULED');
+      INSERT INTO gifts(local_id,recipient_id,occurrence_id,name) VALUES(9007199254740993,1,9007199254740993,'${person} gift');
+      INSERT INTO expenses(local_id,gift_id,occurrence_id,expense_type,amount_x100,occurred_at) VALUES(9007199254740993,9007199254740993,9007199254740993,'GIFT',12345,'2027-01-01');
+      INSERT INTO budgets(local_id,scope_type,occurrence_id,amount_x100) VALUES(9007199254740993,'EVENT',9007199254740993,54321);
+      INSERT INTO occurrence_tasks(local_id,occurrence_id,gift_id,title) VALUES(9007199254740993,9007199254740993,9007199254740993,'${person} task'); COMMIT;`);
+    db.close();
+  };
+  seed(original.dbName, 'Account', 'os-account');
+  const account = await linkGuestProfile('9007199254740993', original);
   const guest = await openGuestProfile();
-  const second = new MockDatabaseSync(mockJoin(mockDirectory, guest.dbName));
-  second
-    .prepare(
-      "INSERT INTO recipients(local_id,name,relationship) VALUES(?, 'Guest value', 'FRIEND')",
-    )
-    .run(uuid(400));
-  second.close();
-  await expect(linkGuestProfile('4001', guest)).rejects.toThrow(
-    'Profile merge conflict in recipients',
+  seed(guest.dbName, 'Guest', 'os-guest');
+  const extra = new MockDatabaseSync(mockJoin(mockDirectory, guest.dbName));
+  extra.exec(
+    "INSERT INTO recipients(local_id,name,relationship) VALUES(9007199254740995,'Large guest','FRIEND')",
+  );
+  extra.exec(
+    "INSERT INTO recipients(local_id,name,relationship) VALUES(2,'Free key guest','FRIEND')",
+  );
+  extra.close();
+  mockShouldFailMergeCommit = true;
+  await expect(linkGuestProfile('9007199254740993', guest)).rejects.toThrow(
+    'injected merge commit failure',
   );
   expect((await openGuestProfile()).dbName).toBe(guest.dbName);
-  const dbA = new MockDatabaseSync(mockJoin(mockDirectory, account.dbName));
-  const dbG = new MockDatabaseSync(mockJoin(mockDirectory, guest.dbName));
-  expect(dbA.prepare('SELECT name FROM recipients').get()?.name).toBe('Account value');
-  expect(dbG.prepare('SELECT name FROM recipients').get()?.name).toBe('Guest value');
-  dbA.close();
-  dbG.close();
+  const interrupted = new MockDatabaseSync(mockJoin(mockDirectory, account.dbName));
+  expect(interrupted.prepare('SELECT count(*) AS count FROM recipients').get()?.count).toBe(1);
+  expect(interrupted.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+  interrupted.close();
+  expect((await linkGuestProfile('9007199254740993', guest)).dbName).toBe(account.dbName);
+  expect((await linkGuestProfile('9007199254740993', guest)).dbName).toBe(account.dbName);
+  const db = new MockDatabaseSync(mockJoin(mockDirectory, account.dbName));
+  const rows = db
+    .prepare(
+      `SELECT r.name, g.name AS gift, e.title, ns.local_notification_id,
+      CAST(r.local_id AS TEXT) AS recipient_id, CAST(e.local_id AS TEXT) AS event_id,
+        ex.amount_x100, b.amount_x100 AS budget, task.title AS task
+    FROM recipients r JOIN gifts g ON g.recipient_id=r.local_id
+    JOIN event_recipients er ON er.recipient_id=r.local_id
+    JOIN events e ON e.local_id=er.event_id AND e.anchor_recipient_id=r.local_id
+    JOIN event_occurrences o ON o.event_id=e.local_id AND o.anchor_recipient_id=r.local_id AND g.occurrence_id=o.local_id
+    JOIN expenses ex ON ex.gift_id=g.local_id AND ex.occurrence_id=o.local_id
+    JOIN budgets b ON b.occurrence_id=o.local_id
+    JOIN occurrence_tasks task ON task.gift_id=g.local_id AND task.occurrence_id=o.local_id
+    JOIN occurrence_recipients ore ON ore.occurrence_id=o.local_id AND ore.recipient_id=r.local_id
+    JOIN reminder_rules rr ON rr.event_id=e.local_id
+    JOIN notification_schedules ns ON ns.event_id=e.local_id AND ns.occurrence_id=o.local_id AND ns.days_before=rr.days_before
+    ORDER BY r.name`,
+    )
+    .all();
+  expect(rows).toHaveLength(2);
+  expect(
+    rows.map(({ name, gift, title, local_notification_id: notificationId }) => ({
+      name,
+      gift,
+      title,
+      local_notification_id: notificationId,
+    })),
+  ).toEqual([
+    {
+      name: 'Account',
+      gift: 'Account gift',
+      title: 'Account event',
+      local_notification_id: 'os-account',
+    },
+    { name: 'Guest', gift: 'Guest gift', title: 'Guest event', local_notification_id: 'os-guest' },
+  ]);
+  expect(
+    rows.map(({ amount_x100: amount, budget, task }) => ({ amount_x100: amount, budget, task })),
+  ).toEqual([
+    { amount_x100: 12345, budget: 54321, task: 'Account task' },
+    { amount_x100: 12345, budget: 54321, task: 'Guest task' },
+  ]);
+  expect(
+    db.prepare("SELECT CAST(local_id AS TEXT) AS id FROM recipients WHERE name='Large guest'").get()
+      ?.id,
+  ).toBe('9007199254740995');
+  expect(
+    db
+      .prepare("SELECT CAST(local_id AS TEXT) AS id FROM recipients WHERE name='Free key guest'")
+      .get()?.id,
+  ).toBe('2');
+  expect(rows[0].event_id).toBe('9007199254740993');
+  expect(rows[0].recipient_id).not.toBe(rows[1].recipient_id);
+  expect(rows[0].event_id).not.toBe(rows[1].event_id);
+  expect(db.prepare('SELECT count(*) AS count FROM notification_schedules').get()?.count).toBe(2);
+  expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+  db.close();
 });

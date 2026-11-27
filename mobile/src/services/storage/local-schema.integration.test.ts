@@ -67,14 +67,14 @@ function seedV1(db: MockDatabaseSync) {
     INSERT INTO gifts(local_id,recipient_id,name) VALUES ('${uid(4)}','${uid(1)}','Gift'); COMMIT;`);
 }
 
+function canonicalSql(file: string) {
+  return readFileSync(mockJoin(setupDir, file), 'utf8').replace(/\r\n/g, '\n');
+}
+
 test('bundled SQL exactly matches canonical scripts', () => {
-  expect(LOCAL_SCHEMA).toBe(readFileSync(mockJoin(setupDir, '03-local.sql'), 'utf8'));
-  expect(LOCAL_MIGRATION_PREPARE_V1).toBe(
-    readFileSync(mockJoin(setupDir, '05-chuan-bi-v1.sql'), 'utf8'),
-  );
-  expect(LOCAL_MIGRATION_RESTORE_V2).toBe(
-    readFileSync(mockJoin(setupDir, '06-khoi-phuc-v2.sql'), 'utf8'),
-  );
+  expect(LOCAL_SCHEMA).toBe(canonicalSql('03-local.sql'));
+  expect(LOCAL_MIGRATION_PREPARE_V1).toBe(canonicalSql('05-chuan-bi-v1.sql'));
+  expect(LOCAL_MIGRATION_RESTORE_V2).toBe(canonicalSql('06-khoi-phuc-v2.sql'));
 });
 
 test('profile open upgrades a populated UUID file and preserves relationships and OS schedule', async () => {

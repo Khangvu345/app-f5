@@ -1,3 +1,10 @@
+import {
+  BeVietnamPro_400Regular,
+  BeVietnamPro_500Medium,
+  BeVietnamPro_600SemiBold,
+  BeVietnamPro_700Bold,
+} from '@expo-google-fonts/be-vietnam-pro';
+import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useState } from 'react';
@@ -10,6 +17,12 @@ import { colors, spacing } from '@/theme';
 
 export default function RootLayout() {
   const status = useAuthStore((state) => state.status);
+  const [hasFonts, fontError] = useFonts({
+    BeVietnamPro_400Regular,
+    BeVietnamPro_500Medium,
+    BeVietnamPro_600SemiBold,
+    BeVietnamPro_700Bold,
+  });
   const [hasStartupError, setStartupError] = useState(false);
   const [isStarting, setIsStarting] = useState(true);
   const start = useCallback(async () => {
@@ -58,7 +71,7 @@ export default function RootLayout() {
       </View>
     );
   }
-  if (isStarting || status === 'loading') {
+  if (isStarting || status === 'loading' || (!hasFonts && !fontError)) {
     return (
       <View style={styles.loading}>
         <ActivityIndicator size="large" />

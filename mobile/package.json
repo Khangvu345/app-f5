@@ -17,13 +17,17 @@
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run test"
   },
   "dependencies": {
+    "@expo-google-fonts/be-vietnam-pro": "^0.4.1",
+    "@expo/vector-icons": "^15.1.1",
     "@react-native-google-signin/google-signin": "^17.0.0",
     "axios": "^1.20.0",
     "expo": "~58.0.0",
     "expo-apple-authentication": "~58.0.2",
     "expo-constants": "~58.0.13",
     "expo-crypto": "~58.0.7",
+    "expo-font": "^58.0.12",
     "expo-linking": "~58.0.14",
+    "expo-notifications": "~58.1.10",
     "expo-router": "~58.0.25",
     "expo-secure-store": "~58.0.2",
     "expo-sqlite": "~58.0.14",

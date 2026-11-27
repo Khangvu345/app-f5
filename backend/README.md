@@ -69,8 +69,13 @@ src/main/java/com/example/backend/
   common/    ApiException, ApiError, GlobalExceptionHandler
 src/main/resources/
   application.yaml
-  db/migration/V1__create_users.sql   # Flyway: schema do migration quản lý (ddl-auto=validate)
+  db/migration/                         # Flyway V1–V3, schema DB chính
+  db/setup/02-server.sql                # Bản SQL thủ công tương ứng V3
 ```
+
+Flyway áp dụng schema PostgreSQL khi backend khởi động. V3 mở rộng `public.users`,
+tái sử dụng `public.refresh_tokens` từ V2 và tạo `giftmate.user_settings`.
+Không chạy `02-server.sql` sau khi V3 đã áp dụng. Xem [hướng dẫn Flyway](../FLYWAY.md).
 
 ## API đã triển khai trong backend mẫu
 

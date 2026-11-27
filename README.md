@@ -24,7 +24,8 @@ Yêu cầu duy nhất: Docker Desktop đang chạy. Không cần cài Java hay P
 - Bấm Add New Server, tab General đặt Name là `app-f5 db`.
 - Tab Connection điền: Host name/address là `db`, Port là `5432`, Username là giá trị `DB_USER` trong `.env`, Password là giá trị `DB_PASSWORD` trong `.env`, tích chọn Save password rồi Save.
 - Host phải là `db`.
-- Mở Servers > app-f5 db > Databases > appdb > Schemas > public > Tables, phải thấy bảng `users`.
+- Mở Servers > app-f5 db > Databases > appdb > Schemas > public > Tables, phải thấy `users`, `refresh_tokens` và `flyway_schema_history`.
+- Trong Schemas > giftmate > Tables, phải thấy `user_settings`. Backend image đóng gói migration; Flyway tự chạy khi backend khởi động.
 
 ## Chạy mobile trên host (kết nối tới backend trong Docker)
 

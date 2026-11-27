@@ -28,14 +28,14 @@
 |---|---|---|---|
 | V1 | `V1__create_users.sql` | Tạo bảng `users` (id `BIGINT GENERATED ALWAYS AS IDENTITY`) | Đã chạy |
 | V2 | `V2__add_refresh_tokens.sql` | Thêm bảng `refresh_tokens` (API contract, login/refresh token) | Đã chạy |
-| V3 | `V3__add_avatar_to_users.sql` | Thêm cột `users.avatar_url VARCHAR(500)` (UC-02, avatar đại diện) | Chưa chạy — copy vào trước lần `up -d` / `bootRun` tiếp theo |
+| V3 | `V3__add_giftmate_account_schema.sql` | Mở rộng `public.users` cho EMAIL/Google/Apple; tạo `giftmate.user_settings` và backfill tên hiển thị | Flyway tự chạy khi backend khởi động |
 
-Schema hiện tại của DB đang ở **v2**. Sau khi V3 chạy xong sẽ lên **v3**.
+Database có V1/V2 sẽ tự lên **v3** khi backend khởi động. Database mới chạy V1, V2, V3 theo thứ tự. V3 giữ `public.users` và `public.refresh_tokens` hiện có; schema `giftmate` chỉ thêm `user_settings`. Tài khoản cũ được gán `auth_provider = EMAIL`, tên hiển thị được chép từ `full_name` và gói mặc định là `FREE`.
 
 ## 3. Muốn đổi schema thì làm gì (luồng chuẩn của team)
 
 1. **Viết file migration mới** trong `backend/src/main/resources/db/migration/`,
-   đặt tên đúng quy tắc: `V<version>__<mo_ta_ngan>.sql` — ví dụ `V4__add_premium_until_to_users.sql`.
+   đặt tên đúng quy tắc: `V<version>__<mo_ta_ngan>.sql` — ví dụ `V4__mo_rong_schema_tiep_theo.sql`.
    - `V` + số version, **2 dấu gạch dưới** `__`, mô tả viết thường, gạch dưới ngăn cách.
    - Mỗi version chỉ dùng **một lần duy nhất** — version tiếp theo là số lớn nhất hiện có + 1.
    - Một file nên làm **một việc** (thêm 1 bảng, hoặc thêm 1 cột, …).
@@ -50,7 +50,7 @@ Schema hiện tại của DB đang ở **v2**. Sau khi V3 chạy xong sẽ lên 
 
 ```
 Current version of schema "public": v2
-Migrating schema "public" to version "3 - add avatar to users"
+Migrating schema "public" to version "3 - add giftmate account schema"
 Successfully applied 1 migration to schema "public", now at version v3
 ```
 
@@ -58,7 +58,9 @@ Successfully applied 1 migration to schema "public", now at version v3
 
 - Mở bảng `flyway_schema_history`: phải có dòng `version = 3`,
   `success = true`, `installed_on` là thời điểm vừa chạy.
-- Mở bảng `users`: phải thấy cột `avatar_url`.
+- Trong `public.users`, phải thấy `auth_provider`, `provider_subject`, `role`, `status` và `deleted_at`; `email` và `password_hash` cho phép NULL với tài khoản OAuth.
+- Trong schema `giftmate`, phải có `user_settings`; các tài khoản cũ có tên hiển thị và gói `FREE`.
+- `public.refresh_tokens` vẫn là bảng của V2; không tạo bản sao trong schema `giftmate`.
 
 ## 4. Quy tắc vàng (đọc kỹ — vi phạm là hỏng DB)
 
@@ -80,7 +82,7 @@ Successfully applied 1 migration to schema "public", now at version v3
 - [ ] Kiểu dữ liệu khớp với entity Java (đặc biệt: **mọi id đều là `BIGINT`**,
       khớp `Long` trong JPA — không dùng UUID cho id).
 - [ ] Cột mới thêm vào bảng đã có dữ liệu: có `DEFAULT` hoặc cho `NULL`
-      được không? (V3 thêm `avatar_url` dạng nullable nên user cũ nhận `NULL`, an toàn.)
+      được không? (V3 đặt default `EMAIL`/`USER`/`ACTIVE` và backfill tên/gói cho user cũ.)
 - [ ] Có khóa ngoại thì bảng cha và cột tham chiếu đã tồn tại, kiểu khớp nhau.
 - [ ] Đã chạy thử ở máy mình, log Flyway báo success, kiểm tra `flyway_schema_history`.
 - [ ] Không chứa secret, không sửa file V1/V2/V3 đã chạy.

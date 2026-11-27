@@ -73,7 +73,7 @@ Mỗi bảng có ánh xạ UUID cũ sang số nguyên dương riêng. Migration 
 | Quy tắc và lịch nhắc | SQLite giữ `reminder_rules` và `notification_schedules`. Mỗi cặp `(occurrence_id, days_before)` ứng với tối đa một lịch, `local_notification_id` là chuỗi do hệ điều hành cấp. GĐ1 hẹn trực tiếp trên thiết bị. |
 | Tùy chọn, checklist và hạn mức thử | Tùy chọn lịch, hiển thị và đơn vị của hồ sơ nằm trong `app_settings_local`. Checklist dùng `occurrence_tasks`. Bộ đếm khách thuộc bản cài, do #10 quản lý bên ngoài file hồ sơ. |
 
-`02-server.sql` là **thiết kế PostgreSQL GĐ1 cho database thử trống**. Chạy `04-kiem-tra-server.sql` để kiểm tra phạm vi bảng, quyền gói và phiên. Backend đang chạy dùng Flyway trong `db/migration/`. Bản thiết kế ERD server 19 bảng ban đầu có trong [lịch sử của repo](https://github.com/Khangvu345/app-f5/blob/70711a2343c11cb9892bdaa0220d5a19558a9f39/backend/src/main/resources/db/setup/02-server.sql). GĐ2 sẽ chốt riêng thiết kế dữ liệu AI và hạn mức dịch vụ.
+`02-server.sql` là bản thủ công tương ứng với migration Flyway V3. Nó yêu cầu V1/V2 đã chạy và chỉ dùng để kiểm tra trên database thử; với Docker thông thường, Flyway tự áp dụng V3 khi backend khởi động. Không chạy `02-server.sql` sau khi V3 đã áp dụng. `04-kiem-tra-server.sql` kiểm tra tài khoản EMAIL/OAuth, gói, refresh token và hành vi xóa tài khoản. ERD server 19 bảng ban đầu được lưu trong [lịch sử của repo](https://github.com/Khangvu345/app-f5/blob/70711a2343c11cb9892bdaa0220d5a19558a9f39/backend/src/main/resources/db/setup/02-server.sql). GĐ2 sẽ chốt riêng thiết kế dữ liệu AI và hạn mức dịch vụ.
 
 ### Quy ước giao ID, ngày và tiền
 

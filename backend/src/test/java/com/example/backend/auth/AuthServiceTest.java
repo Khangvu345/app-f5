@@ -18,11 +18,11 @@ class AuthServiceTest {
     private final TokenService tokens = mock(TokenService.class);
     private final OAuthIdentityRepository identities = mock(OAuthIdentityRepository.class);
     private final OAuthTokenVerifier verifier = mock(OAuthTokenVerifier.class);
-    private final AuthService service = new AuthService(users, passwords, tokens, identities, verifier);
+    private final AuthService service = new AuthService(users, passwords, tokens, identities, verifier, mock(RefreshTokenService.class));
 
     @Test
     void oauthOnlyAccountCannotUseEmailPasswordLogin() {
-        when(users.findByEmail("test@example.com")).thenReturn(Optional.of(new User("test@example.com", null, "Test")));
+        when(users.findByEmailForUpdate("test@example.com")).thenReturn(Optional.of(new User("test@example.com", null, "Test")));
         ApiException error = assertThrows(ApiException.class, () -> service.login(new LoginRequest("test@example.com", "password")));
         assertEquals("INVALID_CREDENTIALS", error.getCode());
         verifyNoInteractions(passwords);

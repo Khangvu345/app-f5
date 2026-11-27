@@ -25,14 +25,16 @@ public class AuthService {
     private final TokenService tokenService;
     private final OAuthIdentityRepository identities;
     private final OAuthTokenVerifier verifier;
+    private final RefreshTokenService refreshTokens;
 
     public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, TokenService tokenService,
-            OAuthIdentityRepository identities, OAuthTokenVerifier verifier) {
+            OAuthIdentityRepository identities, OAuthTokenVerifier verifier, RefreshTokenService refreshTokens) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenService = tokenService;
         this.identities = identities;
         this.verifier = verifier;
+        this.refreshTokens = refreshTokens;
     }
 
     @Transactional
@@ -55,9 +57,9 @@ public class AuthService {
         return toResponse(user);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public AuthResponse login(LoginRequest request) {
-        User user = userRepository.findByEmail(normalize(request.email()))
+        User user = userRepository.findByEmailForUpdate(normalize(request.email()))
                 .filter(found -> found.getPasswordHash() != null && passwordEncoder.matches(request.password(), found.getPasswordHash()))
                 .orElseThrow(() -> ApiException.unauthorized("INVALID_CREDENTIALS", "Email hoặc mật khẩu không đúng."));
         return toResponse(user);
@@ -68,7 +70,9 @@ public class AuthService {
         Jwt jwt = verifier.verify(provider, idToken, nonce);
         var existing = identities.findByProviderAndSubject(provider, jwt.getSubject());
         if (existing.isPresent()) {
-            return toResponse(existing.get().getUser());
+            User user = userRepository.findByIdForUpdate(existing.get().getUser().getId())
+                    .orElseThrow(() -> ApiException.unauthorized("ACCOUNT_INACTIVE", "Tài khoản hiện không hoạt động."));
+            return toResponse(user);
         }
 
         // Only a verified email is eligible for storage, never automatic account linking.
@@ -105,12 +109,17 @@ public class AuthService {
         }
     }
 
+    @Transactional
+    public AuthResponse refresh(String token) {
+        return toResponse(refreshTokens.consume(token));
+    }
+
     private AuthResponse toResponse(User user) {
         if (!"ACTIVE".equals(user.getStatus())) {
             throw ApiException.unauthorized("ACCOUNT_INACTIVE", "Tài khoản hiện không hoạt động.");
         }
         String token = tokenService.generateAccessToken(user.getId(), user.getEmail());
-        return new AuthResponse(token, "Bearer", tokenService.accessTokenTtlSeconds(), UserResponse.from(user));
+        return new AuthResponse(token, refreshTokens.issue(user), "Bearer", tokenService.accessTokenTtlSeconds(), UserResponse.from(user));
     }
 
     private static String normalize(String email) {

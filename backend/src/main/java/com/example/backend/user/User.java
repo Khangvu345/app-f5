@@ -37,6 +37,9 @@ public class User {
     @Column(name = "plan_type", nullable = false, length = 10)
     private String planType = "FREE";
 
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -80,6 +83,18 @@ public class User {
     public String getFullName() {
         return fullName;
     }
+
+    public void deleteAccount() {
+        this.email = null;
+        this.passwordHash = null;
+        this.fullName = "Deleted account";
+        this.status = "DELETED";
+        this.deletedAt = Instant.now();
+    }
+
+    public void setFullName(String fullName) { this.fullName = fullName; }
+
+    public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
 
     public String getRole() {
         return role;

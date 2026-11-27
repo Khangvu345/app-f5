@@ -6,6 +6,9 @@ import com.example.backend.auth.dto.AuthResponse;
 import com.example.backend.auth.dto.LoginRequest;
 import com.example.backend.auth.dto.OAuthRequest;
 import com.example.backend.auth.dto.RegisterRequest;
+import com.example.backend.auth.dto.RefreshTokenRequest;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import com.example.backend.common.ApiException;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -21,9 +24,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final RefreshTokenService refreshTokens;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, RefreshTokenService refreshTokens) {
         this.authService = authService;
+        this.refreshTokens = refreshTokens;
     }
 
     @PostMapping("/register")
@@ -35,6 +40,17 @@ public class AuthController {
     @PostMapping("/login")
     public AuthResponse login(@Valid @RequestBody LoginRequest request) {
         return authService.login(request);
+    }
+
+    @PostMapping("/refresh")
+    public AuthResponse refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        return authService.refresh(request.refreshToken());
+    }
+
+    @PostMapping("/logout")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void logout(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody(required = false) RefreshTokenRequest request) {
+        if (request != null) refreshTokens.revokeForUser(Long.parseLong(jwt.getSubject()), request.refreshToken());
     }
 
     @PostMapping("/oauth/{provider}")

@@ -27,15 +27,15 @@ class AuthControllerTest {
     @BeforeEach
     void setup() {
         service = mock(AuthService.class);
-        mvc = MockMvcBuilders.standaloneSetup(new AuthController(service))
+        mvc = MockMvcBuilders.standaloneSetup(new AuthController(service, mock(RefreshTokenService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
 
     @Test
     void registerAcceptsLegacyAndCurrentNameAndPreservesLargeIdInHttpJson() throws Exception {
-        when(service.register(any())).thenReturn(new AuthResponse("token", "Bearer", 3600,
-                new UserResponse("9007199254740993", "user@example.com", "Example", "USER", "ACTIVE", "FREE")));
+        when(service.register(any())).thenReturn(new AuthResponse("token", "refresh", "Bearer", 3600,
+                new UserResponse("9007199254740993", "user@example.com", "Example", "USER", "ACTIVE", "FREE", true)));
         mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"displayName":"Example","email":"user@example.com","password":"password"}
@@ -66,8 +66,8 @@ class AuthControllerTest {
         mvc.perform(post("/api/v1/auth/oauth/google").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"idToken\":\"\"}"))
                 .andExpect(status().isBadRequest());
-        when(service.oauth("GOOGLE", "token", null)).thenReturn(new AuthResponse("access", "Bearer", 3600,
-                new UserResponse("1", null, "Example", "USER", "ACTIVE", "FREE")));
+        when(service.oauth("GOOGLE", "token", null)).thenReturn(new AuthResponse("access", "refresh", "Bearer", 3600,
+                new UserResponse("1", null, "Example", "USER", "ACTIVE", "FREE", true)));
         mvc.perform(post("/api/v1/auth/oauth/google").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"idToken\":\"token\"}"))
                 .andExpect(status().isOk())

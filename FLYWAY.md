@@ -28,14 +28,18 @@
 |---|---|---|---|
 | V1 | `V1__create_users.sql` | Tạo bảng `users` (id `BIGINT GENERATED ALWAYS AS IDENTITY`) | Đã chạy |
 | V2 | `V2__add_refresh_tokens.sql` | Thêm bảng `refresh_tokens` (API contract, login/refresh token) | Đã chạy |
-| V3 | `V3__add_giftmate_account_schema.sql` | Mở rộng `public.users` cho EMAIL/Google/Apple; tạo `giftmate.user_settings` và backfill tên hiển thị | Flyway tự chạy khi backend khởi động |
+| V3 | `V3__add_giftmate_account_schema.sql` | Mở rộng `public.users` cho EMAIL/Google/Apple, tạo `giftmate.user_settings` và điền tên hiển thị cho tài khoản cũ | Flyway tự chạy khi backend khởi động |
+| V4 | `V4__add_giftmate_tables_to_public.sql` | Chuyển `user_settings` sang `public` và bổ sung 17 bảng, các view và trigger từ ERD PostgreSQL gốc | Flyway tự chạy khi backend khởi động |
 
-Database có V1/V2 sẽ tự lên **v3** khi backend khởi động. Database mới chạy V1, V2, V3 theo thứ tự. V3 giữ `public.users` và `public.refresh_tokens` hiện có; schema `giftmate` chỉ thêm `user_settings`. Tài khoản cũ được gán `auth_provider = EMAIL`, tên hiển thị được chép từ `full_name` và gói mặc định là `FREE`.
+Sau V4, cả 19 bảng ERD nằm trong schema `public` của `appdb`. V4 giữ dữ liệu `users`,
+`refresh_tokens` và `user_settings` đã có. Với Docker, khởi động bằng `docker compose up -d --build`
+để Flyway tự áp dụng các migration còn thiếu. `db/setup/02-server.sql` là bản SQL tham chiếu
+của V4 cho database kiểm thử đã chạy V1–V3.
 
 ## 3. Muốn đổi schema thì làm gì (luồng chuẩn của team)
 
 1. **Viết file migration mới** trong `backend/src/main/resources/db/migration/`,
-   đặt tên đúng quy tắc: `V<version>__<mo_ta_ngan>.sql` — ví dụ `V4__mo_rong_schema_tiep_theo.sql`.
+   đặt tên đúng quy tắc: `V<version>__<mo_ta_ngan>.sql` — ví dụ `V5__mo_rong_schema_tiep_theo.sql`.
    - `V` + số version, **2 dấu gạch dưới** `__`, mô tả viết thường, gạch dưới ngăn cách.
    - Mỗi version chỉ dùng **một lần duy nhất** — version tiếp theo là số lớn nhất hiện có + 1.
    - Một file nên làm **một việc** (thêm 1 bảng, hoặc thêm 1 cột, …).
@@ -49,18 +53,16 @@ Database có V1/V2 sẽ tự lên **v3** khi backend khởi động. Database m�
 ### Log cần thấy khi migration chạy đúng
 
 ```
-Current version of schema "public": v2
-Migrating schema "public" to version "3 - add giftmate account schema"
-Successfully applied 1 migration to schema "public", now at version v3
+Current version of schema "public": v3
+Migrating schema "public" to version "4 - add giftmate tables to public"
+Successfully applied 1 migration to schema "public", now at version v4
 ```
 
 ### Kiểm tra trong pgAdmin (http://localhost:5050)
 
-- Mở bảng `flyway_schema_history`: phải có dòng `version = 3`,
-  `success = true`, `installed_on` là thời điểm vừa chạy.
-- Trong `public.users`, phải thấy `auth_provider`, `provider_subject`, `role`, `status` và `deleted_at`; `email` và `password_hash` cho phép NULL với tài khoản OAuth.
-- Trong schema `giftmate`, phải có `user_settings`; các tài khoản cũ có tên hiển thị và gói `FREE`.
-- `public.refresh_tokens` vẫn là bảng của V2; không tạo bản sao trong schema `giftmate`.
+- Trong `public.flyway_schema_history`, kiểm tra dòng `version = 4` có `success = true`.
+- Trong `public`, kiểm tra 19 bảng ERD, gồm `users`, `user_settings`, `recipients`, `events` và `gifts`, cùng `refresh_tokens` của V2.
+- Chạy `db/setup/04-kiem-tra-server.sql` trên database kiểm thử để xác nhận danh sách bảng và các ràng buộc.
 
 ## 4. Quy tắc vàng (đọc kỹ — vi phạm là hỏng DB)
 

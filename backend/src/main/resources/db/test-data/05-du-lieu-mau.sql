@@ -12,7 +12,7 @@ WITH demo AS (
     SELECT id FROM public.users WHERE email = 'demo@giftmate.example'
     LIMIT 1
 )
-INSERT INTO giftmate.user_settings (user_id, display_name)
+INSERT INTO public.user_settings (user_id, display_name)
 SELECT id, 'Minh Anh' FROM account
 ON CONFLICT (user_id) DO NOTHING;
 

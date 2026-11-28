@@ -73,7 +73,7 @@ Mỗi bảng có ánh xạ UUID cũ sang số nguyên dương riêng. Migration 
 | Quy tắc và lịch nhắc | SQLite giữ `reminder_rules` và `notification_schedules`. Mỗi cặp `(occurrence_id, days_before)` ứng với tối đa một lịch, `local_notification_id` là chuỗi do hệ điều hành cấp. GĐ1 hẹn trực tiếp trên thiết bị. |
 | Tùy chọn, checklist và hạn mức thử | Tùy chọn lịch, hiển thị và đơn vị của hồ sơ nằm trong `app_settings_local`. Checklist dùng `occurrence_tasks`. Bộ đếm khách thuộc bản cài, do #10 quản lý bên ngoài file hồ sơ. |
 
-`02-server.sql` là **thiết kế PostgreSQL GĐ1 cho database thử trống**. Chạy `04-kiem-tra-server.sql` để kiểm tra phạm vi bảng, quyền gói và phiên. Backend đang chạy dùng Flyway trong `db/migration/`. Bản thiết kế ERD server 19 bảng ban đầu có trong [lịch sử của repo](https://github.com/Khangvu345/app-f5/blob/70711a2343c11cb9892bdaa0220d5a19558a9f39/backend/src/main/resources/db/setup/02-server.sql). GĐ2 sẽ chốt riêng thiết kế dữ liệu AI và hạn mức dịch vụ.
+Flyway V4 chuẩn bị đủ 19 bảng ERD PostgreSQL trong `appdb.public`. Sự hiện diện của các bảng này độc lập với luồng CRUD mobile, vốn đọc và ghi SQLite theo phạm vi GĐ1. Xem [hướng dẫn Flyway](../../../../../../FLYWAY.md) để khởi động và kiểm tra PostgreSQL.
 
 ### Quy ước giao ID, ngày và tiền
 

@@ -28,14 +28,18 @@
 |---|---|---|---|
 | V1 | `V1__create_users.sql` | Tạo bảng `users` (id `BIGINT GENERATED ALWAYS AS IDENTITY`) | Đã chạy |
 | V2 | `V2__add_refresh_tokens.sql` | Thêm bảng `refresh_tokens` (API contract, login/refresh token) | Đã chạy |
-| V3 | `V3__add_avatar_to_users.sql` | Thêm cột `users.avatar_url VARCHAR(500)` (UC-02, avatar đại diện) | Chưa chạy — copy vào trước lần `up -d` / `bootRun` tiếp theo |
+| V3 | `V3__add_giftmate_account_schema.sql` | Mở rộng `public.users` cho EMAIL/Google/Apple, tạo `giftmate.user_settings` và điền tên hiển thị cho tài khoản cũ | Flyway tự chạy khi backend khởi động |
+| V4 | `V4__add_giftmate_tables_to_public.sql` | Chuyển `user_settings` sang `public` và bổ sung 17 bảng, các view và trigger từ ERD PostgreSQL gốc | Flyway tự chạy khi backend khởi động |
 
-Schema hiện tại của DB đang ở **v2**. Sau khi V3 chạy xong sẽ lên **v3**.
+Sau V4, cả 19 bảng ERD nằm trong schema `public` của `appdb`. V4 giữ dữ liệu `users`,
+`refresh_tokens` và `user_settings` đã có. Với Docker, khởi động bằng `docker compose up -d --build`
+để Flyway tự áp dụng các migration còn thiếu. `db/setup/02-server.sql` là bản SQL tham chiếu
+của V4 cho database kiểm thử đã chạy V1–V3.
 
 ## 3. Muốn đổi schema thì làm gì (luồng chuẩn của team)
 
 1. **Viết file migration mới** trong `backend/src/main/resources/db/migration/`,
-   đặt tên đúng quy tắc: `V<version>__<mo_ta_ngan>.sql` — ví dụ `V4__add_premium_until_to_users.sql`.
+   đặt tên đúng quy tắc: `V<version>__<mo_ta_ngan>.sql` — ví dụ `V5__mo_rong_schema_tiep_theo.sql`.
    - `V` + số version, **2 dấu gạch dưới** `__`, mô tả viết thường, gạch dưới ngăn cách.
    - Mỗi version chỉ dùng **một lần duy nhất** — version tiếp theo là số lớn nhất hiện có + 1.
    - Một file nên làm **một việc** (thêm 1 bảng, hoặc thêm 1 cột, …).
@@ -49,16 +53,16 @@ Schema hiện tại của DB đang ở **v2**. Sau khi V3 chạy xong sẽ lên 
 ### Log cần thấy khi migration chạy đúng
 
 ```
-Current version of schema "public": v2
-Migrating schema "public" to version "3 - add avatar to users"
-Successfully applied 1 migration to schema "public", now at version v3
+Current version of schema "public": v3
+Migrating schema "public" to version "4 - add giftmate tables to public"
+Successfully applied 1 migration to schema "public", now at version v4
 ```
 
 ### Kiểm tra trong pgAdmin (http://localhost:5050)
 
-- Mở bảng `flyway_schema_history`: phải có dòng `version = 3`,
-  `success = true`, `installed_on` là thời điểm vừa chạy.
-- Mở bảng `users`: phải thấy cột `avatar_url`.
+- Trong `public.flyway_schema_history`, kiểm tra dòng `version = 4` có `success = true`.
+- Trong `public`, kiểm tra 19 bảng ERD, gồm `users`, `user_settings`, `recipients`, `events` và `gifts`, cùng `refresh_tokens` của V2.
+- Chạy `db/setup/04-kiem-tra-server.sql` trên database kiểm thử để xác nhận danh sách bảng và các ràng buộc.
 
 ## 4. Quy tắc vàng (đọc kỹ — vi phạm là hỏng DB)
 
@@ -80,7 +84,7 @@ Successfully applied 1 migration to schema "public", now at version v3
 - [ ] Kiểu dữ liệu khớp với entity Java (đặc biệt: **mọi id đều là `BIGINT`**,
       khớp `Long` trong JPA — không dùng UUID cho id).
 - [ ] Cột mới thêm vào bảng đã có dữ liệu: có `DEFAULT` hoặc cho `NULL`
-      được không? (V3 thêm `avatar_url` dạng nullable nên user cũ nhận `NULL`, an toàn.)
+      được không? (V3 đặt default `EMAIL`/`USER`/`ACTIVE` và backfill tên/gói cho user cũ.)
 - [ ] Có khóa ngoại thì bảng cha và cột tham chiếu đã tồn tại, kiểu khớp nhau.
 - [ ] Đã chạy thử ở máy mình, log Flyway báo success, kiểm tra `flyway_schema_history`.
 - [ ] Không chứa secret, không sửa file V1/V2/V3 đã chạy.
